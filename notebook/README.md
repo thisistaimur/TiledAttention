@@ -128,11 +128,14 @@ Kernel behavior can also be overridden via environment variables:
 ```bash
 export TILEDATTN_SYNC_MODE=async           # strict | post | async
 export TILEDATTN_ACCUM_MODE=fp32           # fp32 | fp16
+# Optional: pin tile sizes. If unset, runtime auto-policy is used.
 export TILEDATTN_TILE_M=64
 export TILEDATTN_TILE_N=64
 export TILEDATTN_KERNEL_OPT_LEVEL=3
 export TILEDATTN_KERNEL_OCCUPANCY=2        # optional
 export TILEDATTN_KERNEL_NUM_CTAS=2         # optional
+# Optional experimental path (off by default):
+# export TILEDATTN_CHUNKED_HEAD_DIMS=96,160
 ```
 
 ## 8) Output Files
