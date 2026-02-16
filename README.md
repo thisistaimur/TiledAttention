@@ -193,4 +193,4 @@ Nsight artifacts:
 - This repository currently targets forward-pass SDPA only.
 
 ## License
-Apache-2.0
+Apache-2.0. See [LICENSE](LICENSE).
