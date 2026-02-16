@@ -3,7 +3,9 @@
 Paper artifact and reference implementation for:
 
 >**TiledAttention: a TileIR SDPA Kernel for PyTorch on CUDA systems**
+
 >Khan, T.
+
 >Paper: 
 
 ![Cover: explicit baselines vs TiledAttention (FP16, TFLOPs/s)](benchmark-gb10/figures/figure6_explicit_baselines_tflops_fp16.png)
