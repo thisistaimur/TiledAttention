@@ -13,6 +13,11 @@ _DEFAULT_TM = 64
 _DEFAULT_TN = 64
 _NEG_LARGE = -1.0e30
 _DIRECT_HEAD_DIMS = frozenset({64, 128})
+_ALIGNED_FASTPATH_HEAD_DIMS = frozenset({64, 128})
+_ALIGNED_FASTPATH_MIN_SEQ_BY_HEAD_DIM = {
+    64: 1024,
+    128: 2048,
+}
 _CHUNKED_HEAD_DIM_PARTS = {
     96: (64, 32),
     160: (128, 32),
@@ -58,11 +63,25 @@ def _resolve_kernel_options() -> tuple[int, int | None, int | None]:
     return opt_level, occupancy, num_ctas
 
 
-def _resolve_accum_mode() -> str:
-    mode = os.getenv("TILEDATTN_ACCUM_MODE", "fp32").strip().lower()
+def _default_accum_mode_for_shape(*, seq_len: int, head_dim: int, causal: bool) -> str:
+    # Empirical policy from reduced benchmark:
+    # - D=64 long-ish non-causal shapes prefer fp16 accumulation.
+    # - D=128 long non-causal shapes prefer fp32 accumulation.
+    if (not causal) and head_dim == 64 and seq_len >= 1024:
+        return "fp16"
+    return "fp32"
+
+
+def _resolve_accum_mode(*, seq_len: int, head_dim: int, causal: bool) -> str:
+    raw_mode = os.getenv("TILEDATTN_ACCUM_MODE")
+    if raw_mode is None or raw_mode.strip() == "":
+        return _default_accum_mode_for_shape(seq_len=seq_len, head_dim=head_dim, causal=causal)
+    mode = raw_mode.strip().lower()
+    if mode == "auto":
+        return _default_accum_mode_for_shape(seq_len=seq_len, head_dim=head_dim, causal=causal)
     if mode not in {"fp32", "fp16"}:
         raise ValueError(
-            f"Unsupported TILEDATTN_ACCUM_MODE={mode!r}. Use one of: fp32, fp16."
+            f"Unsupported TILEDATTN_ACCUM_MODE={mode!r}. Use one of: auto, fp32, fp16."
         )
     return mode
 
@@ -96,6 +115,32 @@ def _resolve_chunk_plan(head_dim: int) -> tuple[tuple[int, int], ...] | None:
         plan.append((offset, width))
         offset += width
     return tuple(plan)
+
+
+def _should_use_aligned_noncausal_fastpath(
+    *,
+    seq_len: int,
+    head_dim: int,
+    causal: bool,
+    pad_dim: int,
+    chunk_plan: tuple[tuple[int, int], ...] | None,
+    tile_m: int,
+    tile_n: int,
+) -> bool:
+    if os.getenv("TILEDATTN_DISABLE_ALIGNED_FASTPATH", "").strip() not in {"", "0", "false", "False"}:
+        return False
+    if causal:
+        return False
+    if chunk_plan is not None:
+        return False
+    if pad_dim != 0:
+        return False
+    if head_dim not in _ALIGNED_FASTPATH_HEAD_DIMS:
+        return False
+    min_seq = _ALIGNED_FASTPATH_MIN_SEQ_BY_HEAD_DIM.get(head_dim, 2048)
+    if seq_len < min_seq:
+        return False
+    return (seq_len % tile_m == 0) and (seq_len % tile_n == 0)
 
 
 def _default_tile_config_for_shape(*, seq_len: int, head_dim: int, causal: bool) -> tuple[int, int]:
@@ -253,6 +298,98 @@ def make_flashattn_fwd_kernel(
         ct.store(out, index=(bh_idx, q_tile_idx, 0), tile=out_tile)
 
     return flash_fwd_kernel_fp32acc
+
+
+def make_flashattn_fwd_kernel_aligned_noncausal(
+    tile_m: int,
+    tile_n: int,
+    head_dim: int,
+    *,
+    dtype: Any,
+    accum_mode: str,
+    opt_level: int,
+    occupancy: int | None,
+    num_ctas: int | None,
+):
+    """Specialized non-causal path for tile-aligned, no-padding shapes."""
+    ct = _runtime.get_cutile_module()
+    kernel_kwargs: dict[str, Any] = {"opt_level": opt_level}
+    if occupancy is not None:
+        kernel_kwargs["occupancy"] = occupancy
+    if num_ctas is not None:
+        kernel_kwargs["num_ctas"] = num_ctas
+
+    if accum_mode == "fp16":
+
+        @ct.kernel(**kernel_kwargs)
+        def flash_fwd_kernel_fp16acc_aligned(q, k_t, v, out, scale):
+            bh_idx = ct.bid(0)
+            q_tile_idx = ct.bid(1)
+
+            q_tile = ct.load(q, index=(bh_idx, q_tile_idx, 0), shape=(1, tile_m, head_dim))
+            seq_len = q.shape[1]
+            num_k_tiles = seq_len // tile_n
+
+            m_i = ct.full((1, tile_m, 1), _NEG_LARGE, ct.float32)
+            l_i = ct.zeros((1, tile_m, 1), ct.float32)
+            acc = ct.zeros((1, tile_m, head_dim), dtype)
+
+            for k_tile_idx in range(num_k_tiles):
+                k_tile_t = ct.load(k_t, index=(bh_idx, 0, k_tile_idx), shape=(1, head_dim, tile_n))
+                score = ct.astype(ct.matmul(q_tile, k_tile_t), ct.float32) * scale
+
+                tile_max = ct.max(score, axis=2, keepdims=True)
+                m_next = ct.maximum(m_i, tile_max)
+                alpha = ct.exp(m_i - m_next)
+
+                p = ct.exp(score - m_next)
+                l_i = l_i * alpha + ct.sum(p, axis=2, keepdims=True)
+
+                v_tile = ct.load(v, index=(bh_idx, k_tile_idx, 0), shape=(1, tile_n, head_dim))
+                p_lowp = ct.astype(p, dtype)
+                alpha_lowp = ct.astype(alpha, dtype)
+                acc = acc * alpha_lowp + ct.matmul(p_lowp, v_tile)
+                m_i = m_next
+
+            inv_l = 1.0 / l_i
+            out_tile = acc * ct.astype(inv_l, dtype)
+            ct.store(out, index=(bh_idx, q_tile_idx, 0), tile=out_tile)
+
+        return flash_fwd_kernel_fp16acc_aligned
+
+    @ct.kernel(**kernel_kwargs)
+    def flash_fwd_kernel_fp32acc_aligned(q, k_t, v, out, scale):
+        bh_idx = ct.bid(0)
+        q_tile_idx = ct.bid(1)
+
+        q_tile = ct.load(q, index=(bh_idx, q_tile_idx, 0), shape=(1, tile_m, head_dim))
+        seq_len = q.shape[1]
+        num_k_tiles = seq_len // tile_n
+
+        m_i = ct.full((1, tile_m, 1), _NEG_LARGE, ct.float32)
+        l_i = ct.zeros((1, tile_m, 1), ct.float32)
+        acc = ct.zeros((1, tile_m, head_dim), ct.float32)
+
+        for k_tile_idx in range(num_k_tiles):
+            k_tile_t = ct.load(k_t, index=(bh_idx, 0, k_tile_idx), shape=(1, head_dim, tile_n))
+            score = ct.astype(ct.matmul(q_tile, k_tile_t), ct.float32) * scale
+
+            tile_max = ct.max(score, axis=2, keepdims=True)
+            m_next = ct.maximum(m_i, tile_max)
+            alpha = ct.exp(m_i - m_next)
+
+            p = ct.exp(score - m_next)
+            l_i = l_i * alpha + ct.sum(p, axis=2, keepdims=True)
+
+            v_tile = ct.load(v, index=(bh_idx, k_tile_idx, 0), shape=(1, tile_n, head_dim))
+            p_lowp = ct.astype(p, dtype)
+            acc = acc * alpha + ct.astype(ct.matmul(p_lowp, v_tile), ct.float32)
+            m_i = m_next
+
+        out_tile = ct.astype(acc * (1.0 / l_i), dtype)
+        ct.store(out, index=(bh_idx, q_tile_idx, 0), tile=out_tile)
+
+    return flash_fwd_kernel_fp32acc_aligned
 
 
 def make_flashattn_fwd_kernel_chunked(
@@ -448,10 +585,10 @@ def run_flash_fwd(
     torch_mod = _runtime.get_torch_module()
     cupy_mod = _runtime.get_cupy_module()
     ct = _runtime.get_cutile_module()
-    accum_mode = _resolve_accum_mode()
     opt_level, occupancy, num_ctas = _resolve_kernel_options()
 
     batch, heads, seq_len, head_dim = map(int, q.shape)
+    accum_mode = _resolve_accum_mode(seq_len=seq_len, head_dim=head_dim, causal=causal)
     bh = batch * heads
     if os.getenv("TILEDATTN_TILE_M") or os.getenv("TILEDATTN_TILE_N"):
         tile_m, tile_n = _resolve_tile_config()
@@ -482,11 +619,26 @@ def run_flash_fwd(
     out_bh = torch_mod.empty_like(q_bh)
 
     out_ct_dtype = _ct_dtype_for_torch_dtype(ct, q.dtype)
+    use_aligned_fastpath = _should_use_aligned_noncausal_fastpath(
+        seq_len=seq_len,
+        head_dim=head_dim,
+        causal=causal,
+        pad_dim=pad_dim,
+        chunk_plan=chunk_plan,
+        tile_m=tile_m,
+        tile_n=tile_n,
+    )
+    if chunk_plan is not None:
+        kernel_variant = "chunked"
+    elif use_aligned_fastpath:
+        kernel_variant = "direct_aligned_noncausal"
+    else:
+        kernel_variant = "direct"
     kernel_key = (
         tile_m,
         tile_n,
         kernel_head_dim,
-        "chunked" if chunk_plan is not None else "direct",
+        kernel_variant,
         str(q.dtype),
         causal,
         accum_mode,
@@ -495,20 +647,35 @@ def run_flash_fwd(
         num_ctas if num_ctas is not None else -1,
     )
     if chunk_plan is None:
-        kernel = get_kernel(
-            kernel_key,
-            lambda: make_flashattn_fwd_kernel(
-                tile_m,
-                tile_n,
-                kernel_head_dim,
-                dtype=out_ct_dtype,
-                causal=causal,
-                accum_mode=accum_mode,
-                opt_level=opt_level,
-                occupancy=occupancy,
-                num_ctas=num_ctas,
-            ),
-        )
+        if use_aligned_fastpath:
+            kernel = get_kernel(
+                kernel_key,
+                lambda: make_flashattn_fwd_kernel_aligned_noncausal(
+                    tile_m,
+                    tile_n,
+                    kernel_head_dim,
+                    dtype=out_ct_dtype,
+                    accum_mode=accum_mode,
+                    opt_level=opt_level,
+                    occupancy=occupancy,
+                    num_ctas=num_ctas,
+                ),
+            )
+        else:
+            kernel = get_kernel(
+                kernel_key,
+                lambda: make_flashattn_fwd_kernel(
+                    tile_m,
+                    tile_n,
+                    kernel_head_dim,
+                    dtype=out_ct_dtype,
+                    causal=causal,
+                    accum_mode=accum_mode,
+                    opt_level=opt_level,
+                    occupancy=occupancy,
+                    num_ctas=num_ctas,
+                ),
+            )
     else:
         kernel = get_kernel(
             kernel_key,
