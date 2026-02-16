@@ -22,13 +22,13 @@
 - Primary kernel: `flash_fwd_kernel_fp32acc`
 - Kernel time (gpu__time_duration.sum, normalized to ms): 0.6696
 - Low achieved occupancy (<30% of peak active warps).
-- Nsight report: `notebook/results/ncu_tiledattention_b1_h8_s4096_d128_float16_accfp32_causal.ncu-rep`
-- Raw CSV: `notebook/results/ncu_tiledattention_b1_h8_s4096_d128_float16_accfp32_causal_raw.csv`
+- Nsight report: `benchmark-gb10/results/ncu_tiledattention_b1_h8_s4096_d128_float16_accfp32_causal.ncu-rep`
+- Raw CSV: `benchmark-gb10/results/ncu_tiledattention_b1_h8_s4096_d128_float16_accfp32_causal_raw.csv`
 
 ### torch_sdpa
 
 - Primary kernel: `void pytorch_flash::flash_fwd_kernel<Flash_fwd_kernel_traits<128, 128, 64, 4, 0, 0, cutlass::half_t, Flash_kernel_traits<128, 128, 64, 4, cutlass::half_t>>, 0, 1, 0, 0, 1, 1, 0, 0>(pytorch_flash::Flash_fwd_params)`
 - Kernel time (gpu__time_duration.sum, normalized to ms): 0.6302
 - Low achieved occupancy (<30% of peak active warps).
-- Nsight report: `notebook/results/ncu_torch_sdpa_b1_h8_s4096_d128_float16_accfp32_causal.ncu-rep`
-- Raw CSV: `notebook/results/ncu_torch_sdpa_b1_h8_s4096_d128_float16_accfp32_causal_raw.csv`
+- Nsight report: `benchmark-gb10/results/ncu_torch_sdpa_b1_h8_s4096_d128_float16_accfp32_causal.ncu-rep`
+- Raw CSV: `benchmark-gb10/results/ncu_torch_sdpa_b1_h8_s4096_d128_float16_accfp32_causal_raw.csv`

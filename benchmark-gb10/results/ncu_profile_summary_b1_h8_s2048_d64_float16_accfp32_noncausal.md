@@ -22,8 +22,8 @@
 - Primary kernel: `flash_fwd_kernel_fp32acc_aligned`
 - Kernel time (gpu__time_duration.sum, normalized to ms): 0.2103
 - Low achieved occupancy (<30% of peak active warps).
-- Nsight report: `notebook/results/ncu_tiledattention_b1_h8_s2048_d64_float16_accfp32_noncausal.ncu-rep`
-- Raw CSV: `notebook/results/ncu_tiledattention_b1_h8_s2048_d64_float16_accfp32_noncausal_raw.csv`
+- Nsight report: `benchmark-gb10/results/ncu_tiledattention_b1_h8_s2048_d64_float16_accfp32_noncausal.ncu-rep`
+- Raw CSV: `benchmark-gb10/results/ncu_tiledattention_b1_h8_s2048_d64_float16_accfp32_noncausal_raw.csv`
 
 ### torch_sdpa
 
@@ -31,5 +31,5 @@
 - Kernel time (gpu__time_duration.sum, normalized to ms): 0.2095
 - Low achieved occupancy (<30% of peak active warps).
 - Long-scoreboard stalls are high; likely memory-latency / dependency bottleneck.
-- Nsight report: `notebook/results/ncu_torch_sdpa_b1_h8_s2048_d64_float16_accfp32_noncausal.ncu-rep`
-- Raw CSV: `notebook/results/ncu_torch_sdpa_b1_h8_s2048_d64_float16_accfp32_noncausal_raw.csv`
+- Nsight report: `benchmark-gb10/results/ncu_torch_sdpa_b1_h8_s2048_d64_float16_accfp32_noncausal.ncu-rep`
+- Raw CSV: `benchmark-gb10/results/ncu_torch_sdpa_b1_h8_s2048_d64_float16_accfp32_noncausal_raw.csv`

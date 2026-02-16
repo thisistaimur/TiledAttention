@@ -2,7 +2,7 @@
 
 This document is the full runbook for reproducing the paper-study artifacts from:
 
-- `TiledAttention/notebook/run_study.py`
+- `TiledAttention/benchmark-gb10/run_study.py`
 
 The script benchmarks `tiledattention.sdpa`, runs tile tuning, and writes table/figure
 artifacts used by the paper draft.
@@ -94,7 +94,7 @@ pytest -q
 Default run (used for full tables/figures):
 
 ```bash
-python notebook/run_study.py
+python benchmark-gb10/run_study.py
 ```
 
 This executes:
@@ -114,13 +114,13 @@ Approximate runtime: several minutes (depends on host/GPU load).
 Run with custom timing parameters:
 
 ```bash
-python notebook/run_study.py --warmup 3 --iters 10
+python benchmark-gb10/run_study.py --warmup 3 --iters 10
 ```
 
 Run non-causal only:
 
 ```bash
-python notebook/run_study.py --no-causal
+python benchmark-gb10/run_study.py --no-causal
 ```
 
 Kernel behavior can also be overridden via environment variables:
@@ -142,24 +142,24 @@ export TILEDATTN_KERNEL_NUM_CTAS=2         # optional
 
 Study outputs are written to:
 
-- `notebook/results/benchmark_results.csv`
-- `notebook/results/tuning_results.csv`
-- `notebook/results/table3_reproducibility.md`
-- `notebook/results/table4_tiling_sensitivity.md`
-- `notebook/results/study_summary.md`
-- `notebook/figures/figure3_throughput_vs_s.png`
-- `notebook/figures/figure4_regime_map.png`
-- `notebook/figures/figure5_bw_proxy.png`
-- `notebook/figures/figure_fa_style_tflops_fp16.png`
-- `notebook/figures/figure6_explicit_baselines_tflops_fp16.png`
+- `benchmark-gb10/results/benchmark_results.csv`
+- `benchmark-gb10/results/tuning_results.csv`
+- `benchmark-gb10/results/table3_reproducibility.md`
+- `benchmark-gb10/results/table4_tiling_sensitivity.md`
+- `benchmark-gb10/results/study_summary.md`
+- `benchmark-gb10/figures/figure3_throughput_vs_s.png`
+- `benchmark-gb10/figures/figure4_regime_map.png`
+- `benchmark-gb10/figures/figure5_bw_proxy.png`
+- `benchmark-gb10/figures/figure_fa_style_tflops_fp16.png`
+- `benchmark-gb10/figures/figure6_explicit_baselines_tflops_fp16.png`
 
 Quick inspection commands:
 
 ```bash
-sed -n '1,120p' notebook/results/table3_reproducibility.md
-sed -n '1,120p' notebook/results/table4_tiling_sensitivity.md
-head -n 5 notebook/results/benchmark_results.csv
-head -n 5 notebook/results/tuning_results.csv
+sed -n '1,120p' benchmark-gb10/results/table3_reproducibility.md
+sed -n '1,120p' benchmark-gb10/results/table4_tiling_sensitivity.md
+head -n 5 benchmark-gb10/results/benchmark_results.csv
+head -n 5 benchmark-gb10/results/tuning_results.csv
 ```
 
 ## 9) Baseline Note
@@ -167,8 +167,8 @@ head -n 5 notebook/results/tuning_results.csv
 If `flash_attn` is not installed, the study uses PyTorch SDPA (`torch_sdpa`) as baseline.
 This is recorded automatically in:
 
-- `notebook/results/study_summary.md`
-- `notebook/results/table3_reproducibility.md`
+- `benchmark-gb10/results/study_summary.md`
+- `benchmark-gb10/results/table3_reproducibility.md`
 
 ## 10) Focused Optimization Pass (Reduced Benchmark)
 
@@ -180,13 +180,13 @@ This runs a quick optimization loop:
 Command:
 
 ```bash
-python notebook/run_reduced_optimization.py
+python benchmark-gb10/run_reduced_optimization.py
 ```
 
 Outputs:
 
-- `notebook/results/reduced_optimization_results.csv`
-- `notebook/results/reduced_optimization_summary.md`
+- `benchmark-gb10/results/reduced_optimization_results.csv`
+- `benchmark-gb10/results/reduced_optimization_summary.md`
 
 Current reduced benchmark uses:
 
@@ -206,13 +206,13 @@ Use this when throughput is unexpectedly low and you want a direct signal on:
 Command (default shape: `B=1,H=8,S=4096,D=128`, fp16, non-causal):
 
 ```bash
-python notebook/run_ncu_profile.py
+python benchmark-gb10/run_ncu_profile.py
 ```
 
 Recommended command for current GB10 issue triage:
 
 ```bash
-python notebook/run_ncu_profile.py \
+python benchmark-gb10/run_ncu_profile.py \
   --batch 1 \
   --heads 8 \
   --seq-len 4096 \
@@ -232,7 +232,7 @@ Compare accumulator modes (safe default vs fast mode):
 ```bash
 # fp32 accumulator (default/safe)
 sudo -E TiledAttention/.venv/bin/python \
-  notebook/run_ncu_profile.py \
+  benchmark-gb10/run_ncu_profile.py \
   --ncu-path /usr/local/cuda/bin/ncu \
   --output-dir /tmp/tiledattention_ncu_fp32 \
   --batch 1 --heads 8 --seq-len 4096 --head-dim 128 \
@@ -241,7 +241,7 @@ sudo -E TiledAttention/.venv/bin/python \
 
 # fp16 accumulator (optional fast mode)
 sudo -E TiledAttention/.venv/bin/python \
-  notebook/run_ncu_profile.py \
+  benchmark-gb10/run_ncu_profile.py \
   --ncu-path /usr/local/cuda/bin/ncu \
   --output-dir /tmp/tiledattention_ncu_fp16 \
   --batch 1 --heads 8 --seq-len 4096 --head-dim 128 \
@@ -252,21 +252,21 @@ sudo -E TiledAttention/.venv/bin/python \
 Note on kernel duration units:
 
 - Nsight raw CSV can use mixed units (`ms` in one report, `us` in another).
-- `notebook/run_ncu_profile.py` normalizes kernel time to milliseconds in the summary table.
+- `benchmark-gb10/run_ncu_profile.py` normalizes kernel time to milliseconds in the summary table.
 
 Outputs:
 
 - Nsight reports:
-  - `notebook/results/ncu_tiledattention_*.ncu-rep`
-  - `notebook/results/ncu_torch_sdpa_*.ncu-rep`
+  - `benchmark-gb10/results/ncu_tiledattention_*.ncu-rep`
+  - `benchmark-gb10/results/ncu_torch_sdpa_*.ncu-rep`
 - Raw CSV exports:
-  - `notebook/results/ncu_tiledattention_*_raw.csv`
-  - `notebook/results/ncu_torch_sdpa_*_raw.csv`
+  - `benchmark-gb10/results/ncu_tiledattention_*_raw.csv`
+  - `benchmark-gb10/results/ncu_torch_sdpa_*_raw.csv`
 - Auto-summary:
-  - `notebook/results/ncu_profile_summary_*_acc*.md`
+  - `benchmark-gb10/results/ncu_profile_summary_*_acc*.md`
 
 Open a report in UI (optional):
 
 ```bash
-ncu-ui notebook/results/ncu_tiledattention_*.ncu-rep
+ncu-ui benchmark-gb10/results/ncu_tiledattention_*.ncu-rep
 ```

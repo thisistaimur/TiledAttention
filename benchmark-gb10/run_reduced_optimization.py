@@ -75,7 +75,7 @@ def main() -> int:
     device = torch.device("cuda")
     torch.manual_seed(2026)
 
-    results_dir = Path("notebook/results")
+    results_dir = Path("benchmark-gb10/results")
     results_dir.mkdir(parents=True, exist_ok=True)
 
     b, h = 1, 8

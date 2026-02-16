@@ -1,7 +1,12 @@
 # TiledAttention
 
 Paper artifact and reference implementation for:
+
 **TiledAttention: a TileIR SDPA Kernel for PyTorch on CUDA systems**
+
+Khan, T.
+
+Paper: 
 
 ![Cover: explicit baselines vs TiledAttention (FP16, TFLOPs/s)](benchmark-gb10/figures/figure_fa_style_tflops_fp16.png)
 
@@ -11,7 +16,7 @@ Cover source (local run artifact):
 ## Abstract
 TiledAttention is a scaled dot-product attention (SDPA) forward operator implemented as a cuTile Python kernel for CUDA GPUs and exposed as a PyTorch-callable function. It uses online softmax updates and tiled streaming of K,V to avoid materializing the full attention matrix, while keeping kernel schedules easy to modify. We benchmark on an NVIDIA DGX GB10 node and compare against fused PyTorch SDPA and explicit unfused baselines across sequence length, head dimension, and precision (FP16/BF16). The workload grid targets common foundation-model settings (D=64/128, S=512--8192). We report throughput scaling, profiling-guided bottlenecks, and tiling sensitivity; because the harness relies on standard CUDA/PyTorch/Nsight workflows, the methodology transfers directly to other DGX-class systems.
 
-## Workflow Diagram (Paper Figure 2)
+## Workflow Diagram
 ```mermaid
 flowchart LR
     A["Load Q tile"] --> B["Stream K,V tiles + score/mask"]
@@ -64,18 +69,11 @@ source .venv/bin/activate
 
 python -m pip install --upgrade pip setuptools wheel
 
-# CUDA PyTorch first (explicit cu130 wheel channel)
-pip install torch==2.10.0+cu130 torchvision==0.25.0+cu130 \
-  --index-url https://download.pytorch.org/whl/cu130
+# Install from requirements.txt (single source of dependency truth)
+pip install -r requirements.txt
 
-# cuTile + CuPy
-pip install cupy-cuda13x==13.6.0 cuda-tile==1.1.0
-
-# Project + dev tooling
-pip install -e ".[dev]" --no-build-isolation
-
-# Plotting for study figures
-pip install matplotlib
+# Install project in editable mode
+pip install -e . --no-build-isolation
 ```
 
 ## Dependency Validation (Fail Fast)

@@ -79,7 +79,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--opt-level", type=int, default=None)
     parser.add_argument("--occupancy", type=int, default=None)
     parser.add_argument("--num-ctas", type=int, default=None)
-    parser.add_argument("--output-dir", type=Path, default=Path("notebook/results"))
+    parser.add_argument("--output-dir", type=Path, default=Path("benchmark-gb10/results"))
     parser.add_argument("--ncu-path", type=Path, default=None)
     return parser.parse_args()
 
