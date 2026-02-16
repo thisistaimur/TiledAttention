@@ -4,7 +4,7 @@ Paper artifact and reference implementation for:
 
 >**TiledAttention: a TileIR SDPA Kernel for PyTorch on CUDA systems**
 
->Khan, T.
+>Taimur Khan
 
 >Paper: 
 
