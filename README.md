@@ -38,7 +38,7 @@ flowchart LR
 
 ### Hardware
 - NVIDIA GPU with Blackwell-class capability supported by this repo runtime checks (`10.x` or `12.x`).
-- Tested on NVIDIA DGX GB10.
+- CUDA 13.1 + must for `cuda-tile` library.
 
 ### Software
 - Linux
