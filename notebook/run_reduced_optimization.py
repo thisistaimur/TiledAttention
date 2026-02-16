@@ -95,10 +95,22 @@ def main() -> int:
         "TILEDATTN_KERNEL_NUM_CTAS",
     ]
 
-    baseline_config = "async_default"
+    baseline_config = "async_auto"
     configs = [
         {
-            "name": "async_default",
+            "name": "async_auto",
+            "env": {
+                "TILEDATTN_SYNC_MODE": "async",
+                "TILEDATTN_ACCUM_MODE": None,
+                "TILEDATTN_TILE_M": None,
+                "TILEDATTN_TILE_N": None,
+                "TILEDATTN_KERNEL_OPT_LEVEL": None,
+                "TILEDATTN_KERNEL_OCCUPANCY": None,
+                "TILEDATTN_KERNEL_NUM_CTAS": None,
+            },
+        },
+        {
+            "name": "async_default_fp32",
             "env": {
                 "TILEDATTN_SYNC_MODE": "async",
                 "TILEDATTN_ACCUM_MODE": "fp32",

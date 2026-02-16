@@ -5,7 +5,7 @@ This folder contains the benchmark/tuning study outputs to populate the paper ta
 ## Baseline
 
 - Baseline used: `torch_sdpa`
-- FlashAttention package availability: not installed in this environment.
+- FlashAttention package availability: not installed or unsupported in this environment.
 
 ## Outputs
 

@@ -7,6 +7,7 @@ import statistics
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,6 +16,12 @@ import torch
 from tiledattention import sdpa
 from tiledattention._runtime import get_cupy_module, get_cutile_module, get_torch_module
 from tiledattention.kernels.flash_fwd import _ct_dtype_for_torch_dtype, make_flashattn_fwd_kernel
+
+AXIS_LABEL_FONTSIZE = 16
+TICK_FONTSIZE = 14
+LEGEND_FONTSIZE = 12
+ANNOTATION_FONTSIZE = 10
+FIG_DPI = 300
 
 
 def p95(values: list[float]) -> float:
@@ -63,12 +70,47 @@ def approximate_bw_gbps(*, b: int, h: int, s: int, d: int, bytes_per_elem: int, 
     return bytes_moved / seconds / 1e9
 
 
+def _style_axis(ax) -> None:
+    ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
+    ax.xaxis.label.set_size(AXIS_LABEL_FONTSIZE)
+    ax.yaxis.label.set_size(AXIS_LABEL_FONTSIZE)
+
+
+def _save_figure(fig, path: Path) -> None:
+    fig.tight_layout(pad=0.25)
+    fig.savefig(path, dpi=FIG_DPI, bbox_inches="tight", pad_inches=0.02)
+
+
 def maybe_flash_baseline():
     try:
-        import flash_attn  # noqa: F401
+        from flash_attn import flash_attn_func as fa_func
+
+        return fa_func
+    except Exception:
+        pass
+
+    try:
+        from flash_attn.flash_attn_interface import flash_attn_func as fa_func
+
+        return fa_func
     except Exception:
         return None
-    return None
+
+
+def flash_attention_forward(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    *,
+    causal: bool,
+    flash_attn_func: Callable[..., torch.Tensor],
+) -> torch.Tensor:
+    # flash-attn expects [B, S, H, D], whereas this harness uses [B, H, S, D].
+    q_fa = q.transpose(1, 2).contiguous()
+    k_fa = k.transpose(1, 2).contiguous()
+    v_fa = v.transpose(1, 2).contiguous()
+    out_fa = flash_attn_func(q_fa, k_fa, v_fa, dropout_p=0.0, causal=causal)
+    return out_fa.transpose(1, 2)
 
 
 def torch_sdpa(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: bool) -> torch.Tensor:
@@ -112,10 +154,18 @@ def standard_eager_attention(
 def time_cuda_callable_safe(fn, *, warmup: int, iters: int, method: str) -> tuple[float, float]:
     try:
         return time_cuda_callable(fn, warmup=warmup, iters=iters)
+    except (TypeError, ValueError) as exc:
+        if method == "flashattention":
+            print(f"[bench] warning: flashattention unsupported for this shape/dtype ({exc}); writing NaN metrics")
+            return math.nan, math.nan
+        raise
     except RuntimeError as exc:
         if "out of memory" in str(exc).lower():
             torch.cuda.empty_cache()
             print(f"[bench] warning: OOM while benchmarking {method}; writing NaN metrics")
+            return math.nan, math.nan
+        if method == "flashattention":
+            print(f"[bench] warning: flashattention runtime failure ({exc}); writing NaN metrics")
             return math.nan, math.nan
         raise
 
@@ -199,11 +249,12 @@ def run_benchmark(
     causal_flags: list[bool],
     warmup: int,
     iters: int,
+    enable_flashattention: bool,
 ) -> list[dict[str, str | int | float | bool]]:
     records: list[dict[str, str | int | float | bool]] = []
 
     baseline_name = "torch_sdpa"
-    _ = maybe_flash_baseline()
+    flash_attn_func = maybe_flash_baseline() if enable_flashattention else None
 
     for causal in causal_flags:
         for dtype in dtypes:
@@ -239,6 +290,19 @@ def run_benchmark(
                             ),
                         ),
                     ]
+                    if flash_attn_func is not None:
+                        method_fns.append(
+                            (
+                                "flashattention",
+                                lambda q=q, k=k, v=v, causal=causal, flash_attn_func=flash_attn_func: flash_attention_forward(
+                                    q,
+                                    k,
+                                    v,
+                                    causal=causal,
+                                    flash_attn_func=flash_attn_func,
+                                ),
+                            )
+                        )
 
                     stats: dict[str, tuple[float, float]] = {}
                     for method, fn in method_fns:
@@ -279,13 +343,16 @@ def run_benchmark(
                             }
                         )
 
-                    print(
+                    msg = (
                         f"[bench] causal={causal} dtype={dtype_name} S={s} D={d} "
                         f"tiled={stats['tiledattention'][0]:.3f}ms "
                         f"fused={stats['torch_sdpa'][0]:.3f}ms "
                         f"math={stats['torch_sdpa_math'][0]:.3f}ms "
                         f"eager={stats['standard_eager'][0]:.3f}ms"
                     )
+                    if "flashattention" in stats:
+                        msg += f" flashattn={stats['flashattention'][0]:.3f}ms"
+                    print(msg)
 
     return records
 
@@ -335,41 +402,40 @@ def build_figures(
     tiled_bf16 = filter_rows(rows, method="tiledattention", dtype="bfloat16", causal=False, d=fig3_dtype)
     base_bf16 = filter_rows(rows, method=baseline_name, dtype="bfloat16", causal=False, d=fig3_dtype)
 
-    plt.figure(figsize=(8, 5))
-    plt.plot(
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    ax.plot(
         s_values,
         [float(tiled_fp16[s]["throughput_tokens_per_s"]) for s in s_values],
         marker="o",
         label="TiledAttention FP16",
     )
-    plt.plot(
+    ax.plot(
         s_values,
         [float(base_fp16[s]["throughput_tokens_per_s"]) for s in s_values],
         marker="o",
         label="Baseline FP16",
     )
-    plt.plot(
+    ax.plot(
         s_values,
         [float(tiled_bf16[s]["throughput_tokens_per_s"]) for s in s_values],
         marker="s",
         label="TiledAttention BF16",
     )
-    plt.plot(
+    ax.plot(
         s_values,
         [float(base_bf16[s]["throughput_tokens_per_s"]) for s in s_values],
         marker="s",
         label="Baseline BF16",
     )
-    plt.xscale("log", base=2)
-    plt.xticks(s_values, [str(s) for s in s_values])
-    plt.xlabel("Sequence length S")
-    plt.ylabel("Throughput (tokens/s)")
-    plt.title("Figure 3 - Throughput vs Sequence Length (D=128, causal=False)")
-    plt.grid(alpha=0.3)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(fig_dir / "figure3_throughput_vs_s.png", dpi=150)
-    plt.close()
+    ax.set_xscale("log", base=2)
+    ax.set_xticks(s_values, [str(s) for s in s_values])
+    ax.set_xlabel("Sequence length, S")
+    ax.set_ylabel("Throughput (tokens/s)")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=LEGEND_FONTSIZE)
+    _style_axis(ax)
+    _save_figure(fig, fig_dir / "figure3_throughput_vs_s.png")
+    plt.close(fig)
 
     heat = np.zeros((len(s_values), len(d_values)), dtype=np.float64)
     for i, s in enumerate(s_values):
@@ -396,20 +462,29 @@ def build_figures(
                 base_row["throughput_tokens_per_s"]
             )
 
-    plt.figure(figsize=(8, 5.5))
-    im = plt.imshow(heat, cmap="viridis", aspect="auto")
-    plt.colorbar(im, label="TiledAttention / Baseline (%)")
-    plt.xticks(range(len(d_values)), [str(d) for d in d_values])
-    plt.yticks(range(len(s_values)), [str(s) for s in s_values])
-    plt.xlabel("Head dimension D")
-    plt.ylabel("Sequence length S")
-    plt.title("Figure 4 - Regime Map (FP16, causal=False)")
+    fig, ax = plt.subplots(figsize=(8.0, 5.5))
+    im = ax.imshow(heat, cmap="viridis", aspect="auto")
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("TiledAttention / Baseline (%)", fontsize=AXIS_LABEL_FONTSIZE)
+    cbar.ax.tick_params(labelsize=TICK_FONTSIZE)
+    ax.set_xticks(range(len(d_values)), [str(d) for d in d_values])
+    ax.set_yticks(range(len(s_values)), [str(s) for s in s_values])
+    ax.set_xlabel("Head dimension, D")
+    ax.set_ylabel("Sequence length, S")
     for i in range(len(s_values)):
         for j in range(len(d_values)):
-            plt.text(j, i, f"{heat[i, j]:.1f}", ha="center", va="center", color="white", fontsize=8)
-    plt.tight_layout()
-    plt.savefig(fig_dir / "figure4_regime_map.png", dpi=150)
-    plt.close()
+            ax.text(
+                j,
+                i,
+                f"{heat[i, j]:.1f}",
+                ha="center",
+                va="center",
+                color="white",
+                fontsize=ANNOTATION_FONTSIZE,
+            )
+    _style_axis(ax)
+    _save_figure(fig, fig_dir / "figure4_regime_map.png")
+    plt.close(fig)
 
     tiled_bw = np.array([float(tiled_fp16[s]["approx_bw_gbps"]) for s in s_values], dtype=np.float64)
     base_bw = np.array([float(base_fp16[s]["approx_bw_gbps"]) for s in s_values], dtype=np.float64)
@@ -417,19 +492,18 @@ def build_figures(
     tiled_bw_n = tiled_bw / norm
     base_bw_n = base_bw / norm
 
-    plt.figure(figsize=(8, 5))
-    plt.plot(s_values, tiled_bw_n, marker="o", label="TiledAttention")
-    plt.plot(s_values, base_bw_n, marker="o", label="Baseline")
-    plt.xscale("log", base=2)
-    plt.xticks(s_values, [str(s) for s in s_values])
-    plt.xlabel("Sequence length S")
-    plt.ylabel("Normalized approximate bandwidth")
-    plt.title("Figure 5 - Bandwidth Proxy vs Sequence Length (FP16, D=128)")
-    plt.grid(alpha=0.3)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(fig_dir / "figure5_bw_proxy.png", dpi=150)
-    plt.close()
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    ax.plot(s_values, tiled_bw_n, marker="o", label="TiledAttention")
+    ax.plot(s_values, base_bw_n, marker="o", label="Baseline")
+    ax.set_xscale("log", base=2)
+    ax.set_xticks(s_values, [str(s) for s in s_values])
+    ax.set_xlabel("Sequence length, S")
+    ax.set_ylabel("Normalized bandwidth proxy")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=LEGEND_FONTSIZE)
+    _style_axis(ax)
+    _save_figure(fig, fig_dir / "figure5_bw_proxy.png")
+    plt.close(fig)
 
 
 def build_flashattention_style_figure(
@@ -484,28 +558,19 @@ def build_flashattention_style_figure(
 
             ax.bar(x - width / 2.0, tiled_vals, width=width, label="TiledAttention", color="#1f77b4")
             ax.bar(x + width / 2.0, base_vals, width=width, label="Baseline (torch_sdpa)", color="#ff7f0e")
-            ax.set_title(
-                f"{'Causal' if causal else 'Non-causal'}, D={d} (FP16)",
-                fontsize=10,
-            )
             ax.set_xticks(x)
             ax.set_xticklabels([str(s) for s in s_values], rotation=0)
             ax.grid(axis="y", alpha=0.25)
             if j == 0:
                 ax.set_ylabel("TFLOPs/s")
             if i == len(d_values) - 1:
-                ax.set_xlabel("Sequence length")
+                mode = "causal" if causal else "non-causal"
+                ax.set_xlabel(f"Sequence length, S ({mode})")
             if i == 0 and j == 0:
-                ax.legend(fontsize=8)
+                ax.legend(fontsize=LEGEND_FONTSIZE)
+            _style_axis(ax)
 
-            for xi, value in zip(x - width / 2.0, tiled_vals, strict=False):
-                ax.text(xi, value, f"{value:.1f}", ha="center", va="bottom", fontsize=7)
-            for xi, value in zip(x + width / 2.0, base_vals, strict=False):
-                ax.text(xi, value, f"{value:.1f}", ha="center", va="bottom", fontsize=7)
-
-    fig.suptitle("FlashAttention-style Forward Speed View (TFLOPs/s, FP16)", fontsize=14)
-    fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.98])
-    fig.savefig(fig_dir / "figure_fa_style_tflops_fp16.png", dpi=150)
+    _save_figure(fig, fig_dir / "figure_fa_style_tflops_fp16.png")
     plt.close(fig)
 
 
@@ -523,6 +588,8 @@ def build_explicit_baseline_figure(
         ("torch_sdpa", "PyTorch SDPA (fused)", "#f28e2b"),
         ("tiledattention", "TiledAttention", "#e15759"),
     ]
+    if any(row["method"] == "flashattention" for row in rows):
+        methods.insert(3, ("flashattention", "FlashAttention", "#b07aa1"))
     causal_values = sorted({bool(row["causal"]) for row in rows if row["dtype"] == dtype})
     if not causal_values:
         return
@@ -558,18 +625,17 @@ def build_explicit_baseline_figure(
                 vals.append(float(row["tflops_per_s"]) if row is not None else math.nan)
             ax.bar(x + offset, vals, width=width, label=label, color=color)
 
-        ax.set_title(f"{'Causal' if causal else 'Non-causal'} (D=128, FP16)")
         ax.set_xticks(x)
         ax.set_xticklabels([str(s) for s in s_values])
-        ax.set_xlabel("Sequence length")
+        mode = "causal" if causal else "non-causal"
+        ax.set_xlabel(f"Sequence length, S ({mode})")
         ax.grid(axis="y", alpha=0.25)
         if j == 0:
             ax.set_ylabel("TFLOPs/s")
-            ax.legend(fontsize=8)
+            ax.legend(fontsize=LEGEND_FONTSIZE)
+        _style_axis(ax)
 
-    fig.suptitle("Figure 6 - Explicit Baselines vs TiledAttention (FP16, TFLOPs/s)", fontsize=14)
-    fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.95])
-    fig.savefig(fig_dir / "figure6_explicit_baselines_tflops_fp16.png", dpi=150)
+    _save_figure(fig, fig_dir / "figure6_explicit_baselines_tflops_fp16.png")
     plt.close(fig)
 
 
@@ -683,6 +749,14 @@ def write_table4(path: Path, rows: list[dict[str, str | int | float]]) -> None:
 
 
 def write_summary(path: Path, bench_csv: Path, tune_csv: Path, baseline_name: str) -> None:
+    has_flashattention = False
+    try:
+        with bench_csv.open(newline="") as f:
+            reader = csv.DictReader(f)
+            has_flashattention = any(row.get("method") == "flashattention" for row in reader)
+    except Exception:
+        has_flashattention = False
+
     lines = [
         "# Study Summary",
         "",
@@ -691,7 +765,11 @@ def write_summary(path: Path, bench_csv: Path, tune_csv: Path, baseline_name: st
         "## Baseline",
         "",
         f"- Baseline used: `{baseline_name}`",
-        "- FlashAttention package availability: not installed in this environment.",
+        (
+            "- FlashAttention package availability: installed and benchmarked."
+            if has_flashattention
+            else "- FlashAttention package availability: not installed or unsupported in this environment."
+        ),
         "",
         "## Outputs",
         "",
@@ -717,6 +795,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--heads", type=int, default=8)
     parser.add_argument("--include-causal", action="store_true", default=True)
     parser.add_argument("--no-causal", action="store_true")
+    parser.add_argument("--disable-flashattention", action="store_true")
     return parser.parse_args()
 
 
@@ -757,6 +836,7 @@ def main() -> int:
         causal_flags=causal_flags,
         warmup=args.warmup,
         iters=args.iters,
+        enable_flashattention=not args.disable_flashattention,
     )
 
     bench_csv = results_dir / "benchmark_results.csv"
