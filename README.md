@@ -10,8 +10,6 @@ Paper artifact and reference implementation for:
 
 ![Cover: explicit baselines vs TiledAttention (FP16, TFLOPs/s)](benchmark-gb10/figures/figure6_explicit_baselines_tflops_fp16.png)
 
-Cover source (local run artifact):  
-`TiledAttention/benchmark-gb10/figures/figure6_explicit_baselines_tflops_fp16.png`
 
 ## Abstract
 TiledAttention is a scaled dot-product attention (SDPA) forward operator implemented as a cuTile Python kernel for CUDA GPUs and exposed as a PyTorch-callable function. It uses online softmax updates and tiled streaming of K,V to avoid materializing the full attention matrix, while keeping kernel schedules easy to modify. We benchmark on an NVIDIA DGX GB10 node and compare against fused PyTorch SDPA and explicit unfused baselines across sequence length, head dimension, and precision (FP16/BF16). The workload grid targets common foundation-model settings (D=64/128, S=512--8192). We report throughput scaling, profiling-guided bottlenecks, and tiling sensitivity; because the harness relies on standard CUDA/PyTorch/Nsight workflows, the methodology transfers directly to other DGX-class systems.
