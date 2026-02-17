@@ -6,6 +6,13 @@ from importlib.metadata import PackageNotFoundError, version
 
 
 def _resolve_version() -> str:
+    """
+    Resolve version.
+    It is used by the tiledattention runtime and tooling.
+
+    Returns:
+        str: Function result value.
+    """
     try:
         return version("tiledattention")
     except PackageNotFoundError:

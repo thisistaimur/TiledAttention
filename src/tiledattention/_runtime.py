@@ -18,6 +18,13 @@ _cached_cutile: ModuleType | None = None
 
 
 def _get_torch_module() -> ModuleType:
+    """
+    Get torch module.
+    It supports runtime dependency loading and platform validation.
+
+    Returns:
+        ModuleType: Function result value.
+    """
     global _cached_torch
     if _cached_torch is not None:
         return _cached_torch
@@ -32,11 +39,24 @@ def _get_torch_module() -> ModuleType:
 
 
 def get_torch_module() -> ModuleType:
-    """Returns the imported torch module, raising DependencyError if unavailable."""
+    """
+    Get torch module.
+    It supports runtime dependency loading and platform validation.
+
+    Returns:
+        ModuleType: Function result value.
+    """
     return _get_torch_module()
 
 
 def _get_cupy_module() -> ModuleType:
+    """
+    Get cupy module.
+    It supports runtime dependency loading and platform validation.
+
+    Returns:
+        ModuleType: Function result value.
+    """
     global _cached_cupy
     if _cached_cupy is not None:
         return _cached_cupy
@@ -51,11 +71,24 @@ def _get_cupy_module() -> ModuleType:
 
 
 def get_cupy_module() -> ModuleType:
-    """Returns the imported cupy module, raising DependencyError if unavailable."""
+    """
+    Get cupy module.
+    It supports runtime dependency loading and platform validation.
+
+    Returns:
+        ModuleType: Function result value.
+    """
     return _get_cupy_module()
 
 
 def _cutile_candidates() -> tuple[str, ...]:
+    """
+    Internal helper for cutile candidates.
+    It supports runtime dependency loading and platform validation.
+
+    Returns:
+        tuple[str, ...]: Function result value.
+    """
     raw = os.getenv("TILEDATTENTION_CUTILE_MODULE", "").strip()
     if raw:
         parsed = tuple(part.strip() for part in raw.split(",") if part.strip())
@@ -65,6 +98,13 @@ def _cutile_candidates() -> tuple[str, ...]:
 
 
 def _get_cutile_module() -> ModuleType:
+    """
+    Get cutile module.
+    It supports runtime dependency loading and platform validation.
+
+    Returns:
+        ModuleType: Function result value.
+    """
     global _cached_cutile
     if _cached_cutile is not None:
         return _cached_cutile
@@ -87,11 +127,27 @@ def _get_cutile_module() -> ModuleType:
 
 
 def get_cutile_module() -> ModuleType:
-    """Returns the imported cuTile module, raising DependencyError if unavailable."""
+    """
+    Get cutile module.
+    It supports runtime dependency loading and platform validation.
+
+    Returns:
+        ModuleType: Function result value.
+    """
     return _get_cutile_module()
 
 
 def _query_compute_capability(torch_mod: ModuleType) -> tuple[int, int]:
+    """
+    Internal helper for query compute capability.
+    It supports runtime dependency loading and platform validation.
+
+    Args:
+        torch_mod: Imported torch module instance.
+
+    Returns:
+        tuple[int, int]: Function result value.
+    """
     try:
         device_index = torch_mod.cuda.current_device()
         major, minor = torch_mod.cuda.get_device_capability(device_index)
@@ -103,9 +159,9 @@ def _query_compute_capability(torch_mod: ModuleType) -> tuple[int, int]:
 
 
 def require_supported_runtime() -> None:
-    """Checks CUDA + Blackwell runtime support.
-
-    This is intentionally lazy and should be called from operator entrypoints.
+    """
+    Run require supported runtime.
+    It supports runtime dependency loading and platform validation.
     """
 
     global _runtime_ready
@@ -136,7 +192,10 @@ def require_supported_runtime() -> None:
 
 
 def _reset_runtime_cache_for_tests() -> None:
-    """Testing hook to clear cached runtime validation state."""
+    """
+    Internal helper for reset runtime cache for tests.
+    It supports runtime dependency loading and platform validation.
+    """
 
     global _runtime_ready, _cached_torch, _cached_cupy, _cached_cutile
     with _runtime_lock:

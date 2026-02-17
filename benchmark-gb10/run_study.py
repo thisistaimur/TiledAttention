@@ -25,6 +25,16 @@ FIG_DPI = 300
 
 
 def p95(values: list[float]) -> float:
+    """
+    Run p95.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        values: Input numeric values for summary statistics.
+
+    Returns:
+        float: Function result value.
+    """
     if not values:
         raise ValueError("values must not be empty")
     if len(values) == 1:
@@ -33,6 +43,18 @@ def p95(values: list[float]) -> float:
 
 
 def time_cuda_callable(fn, *, warmup: int, iters: int) -> tuple[float, float]:
+    """
+    Measure cuda callable.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of warmup iterations.
+        iters: Number of timed iterations.
+
+    Returns:
+        tuple[float, float]: Function result value.
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -51,37 +73,112 @@ def time_cuda_callable(fn, *, warmup: int, iters: int) -> tuple[float, float]:
 
 
 def throughput_tokens_per_s(*, b: int, h: int, s: int, median_ms: float) -> float:
+    """
+    Run throughput tokens per s.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        b: Batch size.
+        h: Number of attention heads.
+        s: Sequence length.
+        median_ms: Median latency in milliseconds.
+
+    Returns:
+        float: Function result value.
+    """
     return (b * h * s) / (median_ms / 1000.0)
 
 
 def attention_forward_flops(*, b: int, h: int, s: int, d: int, causal: bool) -> float:
+    """
+    Run attention forward flops.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        b: Batch size.
+        h: Number of attention heads.
+        s: Sequence length.
+        d: Head dimension.
+        causal: Whether causal masking is enabled.
+
+    Returns:
+        float: Function result value.
+    """
     if causal:
         return 2.0 * b * h * s * (s + 1) * d
     return 4.0 * b * h * s * s * d
 
 
 def tflops_per_s(*, flops: float, median_ms: float) -> float:
+    """
+    Run tflops per s.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        flops: Floating-point operation count.
+        median_ms: Median latency in milliseconds.
+
+    Returns:
+        float: Function result value.
+    """
     return flops / (median_ms / 1000.0) / 1e12
 
 
 def approximate_bw_gbps(*, b: int, h: int, s: int, d: int, bytes_per_elem: int, median_ms: float) -> float:
+    """
+    Run approximate bw gbps.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        b: Batch size.
+        h: Number of attention heads.
+        s: Sequence length.
+        d: Head dimension.
+        bytes_per_elem: Bytes per tensor element for bandwidth estimate.
+        median_ms: Median latency in milliseconds.
+
+    Returns:
+        float: Function result value.
+    """
     bytes_moved = 4.0 * b * h * s * d * bytes_per_elem
     seconds = median_ms / 1000.0
     return bytes_moved / seconds / 1e9
 
 
 def _style_axis(ax) -> None:
+    """
+    Apply styling to axis.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        ax: Matplotlib axes object.
+    """
     ax.tick_params(axis="both", labelsize=TICK_FONTSIZE)
     ax.xaxis.label.set_size(AXIS_LABEL_FONTSIZE)
     ax.yaxis.label.set_size(AXIS_LABEL_FONTSIZE)
 
 
 def _save_figure(fig, path: Path) -> None:
+    """
+    Save figure.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        fig: Matplotlib figure object.
+        path: Output path for generated artifact.
+    """
     fig.tight_layout(pad=0.25)
     fig.savefig(path, dpi=FIG_DPI, bbox_inches="tight", pad_inches=0.02)
 
 
 def maybe_flash_baseline():
+    """
+    Run maybe flash baseline.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Returns:
+        object: Function result value.
+    """
     try:
         from flash_attn import flash_attn_func as fa_func
 
@@ -106,6 +203,20 @@ def flash_attention_forward(
     flash_attn_func: Callable[..., torch.Tensor],
 ) -> torch.Tensor:
     # flash-attn expects [B, S, H, D], whereas this harness uses [B, H, S, D].
+    """
+    Run flash attention forward.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        q: Query tensor in attention layout.
+        k: Key tensor in attention layout.
+        v: Value tensor in attention layout.
+        causal: Whether causal masking is enabled.
+        flash_attn_func: Function argument.
+
+    Returns:
+        torch.Tensor: Function result value.
+    """
     q_fa = q.transpose(1, 2).contiguous()
     k_fa = k.transpose(1, 2).contiguous()
     v_fa = v.transpose(1, 2).contiguous()
@@ -114,12 +225,38 @@ def flash_attention_forward(
 
 
 def torch_sdpa(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: bool) -> torch.Tensor:
+    """
+    Run torch sdpa.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        q: Query tensor in attention layout.
+        k: Key tensor in attention layout.
+        v: Value tensor in attention layout.
+        causal: Whether causal masking is enabled.
+
+    Returns:
+        torch.Tensor: Function result value.
+    """
     return torch.nn.functional.scaled_dot_product_attention(
         q, k, v, attn_mask=None, dropout_p=0.0, is_causal=causal
     )
 
 
 def torch_sdpa_math(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: bool) -> torch.Tensor:
+    """
+    Run torch sdpa math.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        q: Query tensor in attention layout.
+        k: Key tensor in attention layout.
+        v: Value tensor in attention layout.
+        causal: Whether causal masking is enabled.
+
+    Returns:
+        torch.Tensor: Function result value.
+    """
     with torch.backends.cuda.sdp_kernel(
         enable_flash=False,
         enable_math=True,
@@ -139,6 +276,20 @@ def standard_eager_attention(
     causal: bool,
     causal_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    """
+    Run standard eager attention.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        q: Query tensor in attention layout.
+        k: Key tensor in attention layout.
+        v: Value tensor in attention layout.
+        causal: Whether causal masking is enabled.
+        causal_mask: Causal-mode configuration flag.
+
+    Returns:
+        torch.Tensor: Function result value.
+    """
     scale = 1.0 / math.sqrt(float(q.shape[-1]))
     scores = torch.matmul(q, k.transpose(-1, -2)) * scale
     if causal:
@@ -152,6 +303,19 @@ def standard_eager_attention(
 
 
 def time_cuda_callable_safe(fn, *, warmup: int, iters: int, method: str) -> tuple[float, float]:
+    """
+    Measure cuda callable safe.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of warmup iterations.
+        iters: Number of timed iterations.
+        method: Method name to execute or profile.
+
+    Returns:
+        tuple[float, float]: Function result value.
+    """
     try:
         return time_cuda_callable(fn, warmup=warmup, iters=iters)
     except (TypeError, ValueError) as exc:
@@ -171,6 +335,13 @@ def time_cuda_callable_safe(fn, *, warmup: int, iters: int, method: str) -> tupl
 
 
 def collect_repro_info() -> dict[str, str]:
+    """
+    Collect repro info.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Returns:
+        dict[str, str]: Function result value.
+    """
     info: dict[str, str] = {}
 
     try:
@@ -221,6 +392,14 @@ def collect_repro_info() -> dict[str, str]:
 
 
 def write_table3(path: Path, info: dict[str, str]) -> None:
+    """
+    Write table3.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        path: Output path for generated artifact.
+        info: Function argument.
+    """
     lines = [
         "# Table 3 - Reproducibility Checklist",
         "",
@@ -251,6 +430,24 @@ def run_benchmark(
     iters: int,
     enable_flashattention: bool,
 ) -> list[dict[str, str | int | float | bool]]:
+    """
+    Run benchmark.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        b: Batch size.
+        h: Number of attention heads.
+        s_values: Sequence-length sweep values.
+        d_values: Head-dimension sweep values.
+        dtypes: List of dtypes to benchmark.
+        causal_flags: Causal-mode sweep values.
+        warmup: Number of warmup iterations.
+        iters: Number of timed iterations.
+        enable_flashattention: Whether to include FlashAttention baseline.
+
+    Returns:
+        list[dict[str, str | int | float | bool]]: Function result value.
+    """
     records: list[dict[str, str | int | float | bool]] = []
 
     baseline_name = "torch_sdpa"
@@ -358,6 +555,14 @@ def run_benchmark(
 
 
 def write_csv(path: Path, rows: list[dict[str, str | int | float | bool]]) -> None:
+    """
+    Write csv.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        path: Output path for generated artifact.
+        rows: Parsed row records from CSV or benchmark output.
+    """
     if not rows:
         raise ValueError("rows must not be empty")
     fieldnames = list(rows[0].keys())
@@ -375,6 +580,20 @@ def filter_rows(
     causal: bool,
     d: int,
 ) -> dict[int, dict[str, str | int | float | bool]]:
+    """
+    Filter rows.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        rows: Parsed row records from CSV or benchmark output.
+        method: Method name to execute or profile.
+        dtype: Target data type used for computation.
+        causal: Whether causal masking is enabled.
+        d: Head dimension.
+
+    Returns:
+        dict[int, dict[str, str | int | float | bool]]: Function result value.
+    """
     out: dict[int, dict[str, str | int | float | bool]] = {}
     for row in rows:
         if (
@@ -392,6 +611,14 @@ def build_figures(
     rows: list[dict[str, str | int | float | bool]],
     fig_dir: Path,
 ) -> None:
+    """
+    Build figures.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        rows: Parsed row records from CSV or benchmark output.
+        fig_dir: Directory for generated figures.
+    """
     baseline_name = "torch_sdpa"
     s_values = [512, 1024, 2048, 4096, 8192]
     d_values = [64, 96, 128, 160]
@@ -511,6 +738,14 @@ def build_flashattention_style_figure(
     rows: list[dict[str, str | int | float | bool]],
     fig_dir: Path,
 ) -> None:
+    """
+    Build flashattention style figure.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        rows: Parsed row records from CSV or benchmark output.
+        fig_dir: Directory for generated figures.
+    """
     baseline_name = "torch_sdpa"
     s_values = [512, 1024, 2048, 4096, 8192]
     d_values = [64, 96, 128, 160]
@@ -579,6 +814,14 @@ def build_explicit_baseline_figure(
     rows: list[dict[str, str | int | float | bool]],
     fig_dir: Path,
 ) -> None:
+    """
+    Build explicit baseline figure.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        rows: Parsed row records from CSV or benchmark output.
+        fig_dir: Directory for generated figures.
+    """
     s_values = [512, 1024, 2048, 4096, 8192]
     d = 128
     dtype = "float16"
@@ -646,6 +889,19 @@ def run_tune(
     warmup: int,
     iters: int,
 ) -> list[dict[str, str | int | float]]:
+    """
+    Run tune.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        b: Batch size.
+        h: Number of attention heads.
+        warmup: Number of warmup iterations.
+        iters: Number of timed iterations.
+
+    Returns:
+        list[dict[str, str | int | float]]: Function result value.
+    """
     ct = get_cutile_module()
     cupy = get_cupy_module()
     torch_mod = get_torch_module()
@@ -660,6 +916,17 @@ def run_tune(
     kernel_cache: dict[tuple[int, int, int, str, bool, str], object] = {}
 
     def run_custom_tile(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, tm: int, tn: int) -> None:
+        """
+        Run custom tile.
+        This helper is part of the benchmark and profiling pipeline.
+
+        Args:
+            q: Query tensor in attention layout.
+            k: Key tensor in attention layout.
+            v: Value tensor in attention layout.
+            tm: Function argument.
+            tn: Function argument.
+        """
         batch, heads, seq_len, head_dim = map(int, q.shape)
         bh = batch * heads
         q_bh = q.contiguous().reshape(bh, seq_len, head_dim)
@@ -734,6 +1001,14 @@ def run_tune(
 
 
 def write_table4(path: Path, rows: list[dict[str, str | int | float]]) -> None:
+    """
+    Write table4.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        path: Output path for generated artifact.
+        rows: Parsed row records from CSV or benchmark output.
+    """
     lines = [
         "# Table 4 - Best Tile Settings by Regime",
         "",
@@ -749,6 +1024,16 @@ def write_table4(path: Path, rows: list[dict[str, str | int | float]]) -> None:
 
 
 def write_summary(path: Path, bench_csv: Path, tune_csv: Path, baseline_name: str) -> None:
+    """
+    Write summary.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        path: Output path for generated artifact.
+        bench_csv: Benchmark CSV path.
+        tune_csv: Tuning CSV path.
+        baseline_name: Baseline method identifier.
+    """
     has_flashattention = False
     try:
         with bench_csv.open(newline="") as f:
@@ -788,6 +1073,13 @@ def write_summary(path: Path, bench_csv: Path, tune_csv: Path, baseline_name: st
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Returns:
+        argparse.Namespace: Function result value.
+    """
     parser = argparse.ArgumentParser(description="Run TiledAttention paper study.")
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--iters", type=int, default=15)
@@ -800,6 +1092,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """
+    Run the script entrypoint.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Returns:
+        int: Function result value.
+    """
     args = parse_args()
 
     if not torch.cuda.is_available():

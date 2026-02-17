@@ -4,6 +4,17 @@ import argparse
 from typing import Any
 
 def parse_dtype(name: str, *, torch_mod: Any) -> Any:
+    """
+    Parse dtype.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        name: Identifier or metric name.
+        torch_mod: Imported torch module instance.
+
+    Returns:
+        Any: Function result value.
+    """
     normalized = name.strip().lower()
     if normalized == "float16":
         return torch_mod.float16
@@ -20,6 +31,20 @@ def run_attention(
     v,
     causal: bool,
 ) -> Any:
+    """
+    Run attention.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        method: Method name to execute or profile.
+        q: Query tensor in attention layout.
+        k: Key tensor in attention layout.
+        v: Value tensor in attention layout.
+        causal: Whether causal masking is enabled.
+
+    Returns:
+        Any: Function result value.
+    """
     import torch
 
     from tiledattention.sdpa import sdpa as tiled_sdpa
@@ -39,6 +64,13 @@ def run_attention(
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Returns:
+        argparse.Namespace: Function result value.
+    """
     parser = argparse.ArgumentParser(
         description="Run one attention workload for Nsight Compute profiling."
     )
@@ -61,6 +93,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """
+    Run the script entrypoint.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Returns:
+        int: Function result value.
+    """
     args = parse_args()
     import torch
 

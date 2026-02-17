@@ -19,7 +19,20 @@ def sdpa(
     causal: bool = False,
     scale: float | None = None,
 ):
-    """Runs scaled dot-product attention."""
+    """
+    Compute scaled dot-product attention.
+    It is part of the public SDPA execution path.
+
+    Args:
+        q: Query tensor in attention layout.
+        k: Key tensor in attention layout.
+        v: Value tensor in attention layout.
+        causal: Whether causal masking is enabled.
+        scale: Attention scaling factor.
+
+    Returns:
+        object: Function result value.
+    """
 
     if not isinstance(causal, bool):
         raise InvalidShapeError("causal must be a bool.")

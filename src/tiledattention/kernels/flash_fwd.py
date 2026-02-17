@@ -25,6 +25,17 @@ _CHUNKED_HEAD_DIM_PARTS = {
 
 
 def _ct_dtype_for_torch_dtype(ct: Any, torch_dtype: Any) -> Any:
+    """
+    Internal helper for ct dtype for torch dtype.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        ct: Imported cuTile module instance.
+        torch_dtype: Torch dtype value to map into cuTile dtype.
+
+    Returns:
+        Any: Function result value.
+    """
     torch_mod = _runtime.get_torch_module()
     if torch_dtype == torch_mod.float16:
         return ct.float16
@@ -34,6 +45,17 @@ def _ct_dtype_for_torch_dtype(ct: Any, torch_dtype: Any) -> Any:
 
 
 def _get_env_int(name: str, default: int | None) -> int | None:
+    """
+    Get env int.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        name: Identifier or metric name.
+        default: Default value used when environment is unset.
+
+    Returns:
+        int | None: Function result value.
+    """
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
         return default
@@ -44,6 +66,13 @@ def _get_env_int(name: str, default: int | None) -> int | None:
 
 
 def _resolve_tile_config() -> tuple[int, int]:
+    """
+    Resolve tile config.
+    It is used during kernel configuration, compilation, or launch.
+
+    Returns:
+        tuple[int, int]: Function result value.
+    """
     tile_m = _get_env_int("TILEDATTN_TILE_M", None)
     tile_n = _get_env_int("TILEDATTN_TILE_N", None)
     if tile_m is None:
@@ -56,6 +85,13 @@ def _resolve_tile_config() -> tuple[int, int]:
 
 
 def _resolve_kernel_options() -> tuple[int, int | None, int | None]:
+    """
+    Resolve kernel options.
+    It is used during kernel configuration, compilation, or launch.
+
+    Returns:
+        tuple[int, int | None, int | None]: Function result value.
+    """
     opt_level = _get_env_int("TILEDATTN_KERNEL_OPT_LEVEL", 3)
     occupancy = _get_env_int("TILEDATTN_KERNEL_OCCUPANCY", None)
     num_ctas = _get_env_int("TILEDATTN_KERNEL_NUM_CTAS", None)
@@ -67,12 +103,36 @@ def _default_accum_mode_for_shape(*, seq_len: int, head_dim: int, causal: bool) 
     # Empirical policy from reduced benchmark:
     # - D=64 long-ish non-causal shapes prefer fp16 accumulation.
     # - D=128 long non-causal shapes prefer fp32 accumulation.
+    """
+    Internal helper for default accum mode for shape.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        seq_len: Sequence length used for heuristic decisions.
+        head_dim: Attention head dimension.
+        causal: Whether causal masking is enabled.
+
+    Returns:
+        str: Function result value.
+    """
     if (not causal) and head_dim == 64 and seq_len >= 1024:
         return "fp16"
     return "fp32"
 
 
 def _resolve_accum_mode(*, seq_len: int, head_dim: int, causal: bool) -> str:
+    """
+    Resolve accum mode.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        seq_len: Sequence length used for heuristic decisions.
+        head_dim: Attention head dimension.
+        causal: Whether causal masking is enabled.
+
+    Returns:
+        str: Function result value.
+    """
     raw_mode = os.getenv("TILEDATTN_ACCUM_MODE")
     if raw_mode is None or raw_mode.strip() == "":
         return _default_accum_mode_for_shape(seq_len=seq_len, head_dim=head_dim, causal=causal)
@@ -87,7 +147,16 @@ def _resolve_accum_mode(*, seq_len: int, head_dim: int, causal: bool) -> str:
 
 
 def _resolve_kernel_head_dim(head_dim: int) -> tuple[int, int]:
-    """Return (kernel_head_dim, pad_dim) for direct-load kernels."""
+    """
+    Resolve kernel head dim.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        head_dim: Attention head dimension.
+
+    Returns:
+        tuple[int, int]: Function result value.
+    """
     if head_dim in _DIRECT_HEAD_DIMS:
         return head_dim, 0
     kernel_head_dim = 1 << (head_dim - 1).bit_length()
@@ -95,6 +164,16 @@ def _resolve_kernel_head_dim(head_dim: int) -> tuple[int, int]:
 
 
 def _resolve_chunk_plan(head_dim: int) -> tuple[tuple[int, int], ...] | None:
+    """
+    Resolve chunk plan.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        head_dim: Attention head dimension.
+
+    Returns:
+        tuple[tuple[int, int], ...] | None: Function result value.
+    """
     enabled = os.getenv("TILEDATTN_CHUNKED_HEAD_DIMS", "").strip()
     if enabled == "":
         return None
@@ -127,6 +206,22 @@ def _should_use_aligned_noncausal_fastpath(
     tile_m: int,
     tile_n: int,
 ) -> bool:
+    """
+    Internal helper for should use aligned noncausal fastpath.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        seq_len: Sequence length used for heuristic decisions.
+        head_dim: Attention head dimension.
+        causal: Whether causal masking is enabled.
+        pad_dim: Function argument.
+        chunk_plan: Head-dimension chunk decomposition plan.
+        tile_m: Tile size in the query-row dimension.
+        tile_n: Tile size in the key/value-column dimension.
+
+    Returns:
+        bool: Function result value.
+    """
     if os.getenv("TILEDATTN_DISABLE_ALIGNED_FASTPATH", "").strip() not in {"", "0", "false", "False"}:
         return False
     if causal:
@@ -144,7 +239,18 @@ def _should_use_aligned_noncausal_fastpath(
 
 
 def _default_tile_config_for_shape(*, seq_len: int, head_dim: int, causal: bool) -> tuple[int, int]:
-    """Heuristic defaults used only when tile env overrides are not provided."""
+    """
+    Internal helper for default tile config for shape.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        seq_len: Sequence length used for heuristic decisions.
+        head_dim: Attention head dimension.
+        causal: Whether causal masking is enabled.
+
+    Returns:
+        tuple[int, int]: Function result value.
+    """
     tile_m = _DEFAULT_TM
     tile_n = _DEFAULT_TN
     # Mid/long non-causal D=128 favors wider N tiles in current tuning results.
@@ -165,6 +271,24 @@ def make_flashattn_fwd_kernel(
     occupancy: int | None,
     num_ctas: int | None,
 ):
+    """
+    Create flashattn fwd kernel.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        tile_m: Tile size in the query-row dimension.
+        tile_n: Tile size in the key/value-column dimension.
+        head_dim: Attention head dimension.
+        dtype: Target data type used for computation.
+        causal: Whether causal masking is enabled.
+        accum_mode: Function argument.
+        opt_level: Kernel optimization level forwarded to cuTile.
+        occupancy: Optional occupancy hint for kernel launch.
+        num_ctas: Optional CTA count hint for kernel launch.
+
+    Returns:
+        object: Function result value.
+    """
     ct = _runtime.get_cutile_module()
     kernel_kwargs: dict[str, Any] = {"opt_level": opt_level}
     if occupancy is not None:
@@ -176,6 +300,17 @@ def make_flashattn_fwd_kernel(
 
         @ct.kernel(**kernel_kwargs)
         def flash_fwd_kernel_fp16acc(q, k_t, v, out, scale):
+            """
+            Run flash fwd kernel fp16acc.
+            It is used during kernel configuration, compilation, or launch.
+
+            Args:
+                q: Query tensor in attention layout.
+                k_t: Transposed key tensor view used by the kernel.
+                v: Value tensor in attention layout.
+                out: Output tensor buffer.
+                scale: Attention scaling factor.
+            """
             bh_idx = ct.bid(0)
             q_tile_idx = ct.bid(1)
 
@@ -238,6 +373,17 @@ def make_flashattn_fwd_kernel(
 
     @ct.kernel(**kernel_kwargs)
     def flash_fwd_kernel_fp32acc(q, k_t, v, out, scale):
+        """
+        Run flash fwd kernel fp32acc.
+        It is used during kernel configuration, compilation, or launch.
+
+        Args:
+            q: Query tensor in attention layout.
+            k_t: Transposed key tensor view used by the kernel.
+            v: Value tensor in attention layout.
+            out: Output tensor buffer.
+            scale: Attention scaling factor.
+        """
         bh_idx = ct.bid(0)
         q_tile_idx = ct.bid(1)
 
@@ -311,7 +457,23 @@ def make_flashattn_fwd_kernel_aligned_noncausal(
     occupancy: int | None,
     num_ctas: int | None,
 ):
-    """Specialized non-causal path for tile-aligned, no-padding shapes."""
+    """
+    Create flashattn fwd kernel aligned noncausal.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        tile_m: Tile size in the query-row dimension.
+        tile_n: Tile size in the key/value-column dimension.
+        head_dim: Attention head dimension.
+        dtype: Target data type used for computation.
+        accum_mode: Function argument.
+        opt_level: Kernel optimization level forwarded to cuTile.
+        occupancy: Optional occupancy hint for kernel launch.
+        num_ctas: Optional CTA count hint for kernel launch.
+
+    Returns:
+        object: Function result value.
+    """
     ct = _runtime.get_cutile_module()
     kernel_kwargs: dict[str, Any] = {"opt_level": opt_level}
     if occupancy is not None:
@@ -323,6 +485,17 @@ def make_flashattn_fwd_kernel_aligned_noncausal(
 
         @ct.kernel(**kernel_kwargs)
         def flash_fwd_kernel_fp16acc_aligned(q, k_t, v, out, scale):
+            """
+            Run flash fwd kernel fp16acc aligned.
+            It is used during kernel configuration, compilation, or launch.
+
+            Args:
+                q: Query tensor in attention layout.
+                k_t: Transposed key tensor view used by the kernel.
+                v: Value tensor in attention layout.
+                out: Output tensor buffer.
+                scale: Attention scaling factor.
+            """
             bh_idx = ct.bid(0)
             q_tile_idx = ct.bid(1)
 
@@ -359,6 +532,17 @@ def make_flashattn_fwd_kernel_aligned_noncausal(
 
     @ct.kernel(**kernel_kwargs)
     def flash_fwd_kernel_fp32acc_aligned(q, k_t, v, out, scale):
+        """
+        Run flash fwd kernel fp32acc aligned.
+        It is used during kernel configuration, compilation, or launch.
+
+        Args:
+            q: Query tensor in attention layout.
+            k_t: Transposed key tensor view used by the kernel.
+            v: Value tensor in attention layout.
+            out: Output tensor buffer.
+            scale: Attention scaling factor.
+        """
         bh_idx = ct.bid(0)
         q_tile_idx = ct.bid(1)
 
@@ -405,6 +589,25 @@ def make_flashattn_fwd_kernel_chunked(
     occupancy: int | None,
     num_ctas: int | None,
 ):
+    """
+    Create flashattn fwd kernel chunked.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        tile_m: Tile size in the query-row dimension.
+        tile_n: Tile size in the key/value-column dimension.
+        head_dim: Attention head dimension.
+        chunk_plan: Head-dimension chunk decomposition plan.
+        dtype: Target data type used for computation.
+        causal: Whether causal masking is enabled.
+        accum_mode: Function argument.
+        opt_level: Kernel optimization level forwarded to cuTile.
+        occupancy: Optional occupancy hint for kernel launch.
+        num_ctas: Optional CTA count hint for kernel launch.
+
+    Returns:
+        object: Function result value.
+    """
     ct = _runtime.get_cutile_module()
     kernel_kwargs: dict[str, Any] = {"opt_level": opt_level}
     if occupancy is not None:
@@ -419,6 +622,21 @@ def make_flashattn_fwd_kernel_chunked(
 
         @ct.kernel(**kernel_kwargs)
         def flash_fwd_kernel_fp16acc_chunked(q0, k0_t, v0, q1, k1_t, v1, out0, out1, scale):
+            """
+            Run flash fwd kernel fp16acc chunked.
+            It is used during kernel configuration, compilation, or launch.
+
+            Args:
+                q0: First query chunk for chunked head-dimension kernels.
+                k0_t: Transposed first key chunk.
+                v0: First value chunk for chunked execution.
+                q1: Second query chunk for chunked head-dimension kernels.
+                k1_t: Transposed second key chunk.
+                v1: Second value chunk for chunked execution.
+                out0: First output chunk buffer.
+                out1: Second output chunk buffer.
+                scale: Attention scaling factor.
+            """
             bh_idx = ct.bid(0)
             q_tile_idx = ct.bid(1)
 
@@ -486,6 +704,21 @@ def make_flashattn_fwd_kernel_chunked(
 
     @ct.kernel(**kernel_kwargs)
     def flash_fwd_kernel_fp32acc_chunked(q0, k0_t, v0, q1, k1_t, v1, out0, out1, scale):
+        """
+        Run flash fwd kernel fp32acc chunked.
+        It is used during kernel configuration, compilation, or launch.
+
+        Args:
+            q0: First query chunk for chunked head-dimension kernels.
+            k0_t: Transposed first key chunk.
+            v0: First value chunk for chunked execution.
+            q1: Second query chunk for chunked head-dimension kernels.
+            k1_t: Transposed second key chunk.
+            v1: Second value chunk for chunked execution.
+            out0: First output chunk buffer.
+            out1: Second output chunk buffer.
+            scale: Attention scaling factor.
+        """
         bh_idx = ct.bid(0)
         q_tile_idx = ct.bid(1)
 
@@ -557,6 +790,17 @@ def _launch_cutile_kernel(
     grid: tuple[int, int, int],
     args: tuple[Any, ...],
 ) -> None:
+    """
+    Internal helper for launch cutile kernel.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        ct: Imported cuTile module instance.
+        cupy_mod: Imported CuPy module instance.
+        kernel: Compiled kernel object to launch.
+        grid: Function argument.
+        args: Parsed command-line arguments namespace.
+    """
     torch_mod = _runtime.get_torch_module()
     sync_mode = os.getenv("TILEDATTN_SYNC_MODE", "async").strip().lower()
     stream = cupy_mod.cuda.get_current_stream()
@@ -582,6 +826,20 @@ def run_flash_fwd(
     causal: bool,
     scale: float,
 ):
+    """
+    Run flash fwd.
+    It is used during kernel configuration, compilation, or launch.
+
+    Args:
+        q: Query tensor in attention layout.
+        k: Key tensor in attention layout.
+        v: Value tensor in attention layout.
+        causal: Whether causal masking is enabled.
+        scale: Attention scaling factor.
+
+    Returns:
+        object: Function result value.
+    """
     torch_mod = _runtime.get_torch_module()
     cupy_mod = _runtime.get_cupy_module()
     ct = _runtime.get_cutile_module()

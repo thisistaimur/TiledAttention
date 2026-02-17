@@ -12,6 +12,18 @@ from tiledattention.kernels.compile_cache import reset_cache_for_tests
 
 
 def time_cuda_callable(fn, *, warmup: int, iters: int) -> tuple[float, float]:
+    """
+    Measure cuda callable.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        fn: Callable to benchmark.
+        warmup: Number of warmup iterations.
+        iters: Number of timed iterations.
+
+    Returns:
+        tuple[float, float]: Function result value.
+    """
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -31,20 +43,69 @@ def time_cuda_callable(fn, *, warmup: int, iters: int) -> tuple[float, float]:
 
 
 def throughput_tokens_per_s(*, b: int, h: int, s: int, median_ms: float) -> float:
+    """
+    Run throughput tokens per s.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        b: Batch size.
+        h: Number of attention heads.
+        s: Sequence length.
+        median_ms: Median latency in milliseconds.
+
+    Returns:
+        float: Function result value.
+    """
     return (b * h * s) / (median_ms / 1000.0)
 
 
 def attention_forward_flops(*, b: int, h: int, s: int, d: int, causal: bool) -> float:
+    """
+    Run attention forward flops.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        b: Batch size.
+        h: Number of attention heads.
+        s: Sequence length.
+        d: Head dimension.
+        causal: Whether causal masking is enabled.
+
+    Returns:
+        float: Function result value.
+    """
     if causal:
         return 2.0 * b * h * s * (s + 1) * d
     return 4.0 * b * h * s * s * d
 
 
 def tflops_per_s(*, flops: float, median_ms: float) -> float:
+    """
+    Run tflops per s.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        flops: Floating-point operation count.
+        median_ms: Median latency in milliseconds.
+
+    Returns:
+        float: Function result value.
+    """
     return flops / (median_ms / 1000.0) / 1e12
 
 
 def apply_env(overrides: dict[str, str | None], keys: list[str]) -> dict[str, str | None]:
+    """
+    Run apply env.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        overrides: Environment overrides to apply temporarily.
+        keys: Function argument.
+
+    Returns:
+        dict[str, str | None]: Function result value.
+    """
     prev = {k: os.environ.get(k) for k in keys}
     for k, v in overrides.items():
         if v is None:
@@ -55,6 +116,13 @@ def apply_env(overrides: dict[str, str | None], keys: list[str]) -> dict[str, st
 
 
 def restore_env(snapshot: dict[str, str | None]) -> None:
+    """
+    Run restore env.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        snapshot: Captured environment values for restoration.
+    """
     for k, v in snapshot.items():
         if v is None:
             os.environ.pop(k, None)
@@ -63,12 +131,32 @@ def restore_env(snapshot: dict[str, str | None]) -> None:
 
 
 def torch_sdpa(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: bool) -> torch.Tensor:
+    """
+    Run torch sdpa.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        q: Query tensor in attention layout.
+        k: Key tensor in attention layout.
+        v: Value tensor in attention layout.
+        causal: Whether causal masking is enabled.
+
+    Returns:
+        torch.Tensor: Function result value.
+    """
     return torch.nn.functional.scaled_dot_product_attention(
         q, k, v, attn_mask=None, dropout_p=0.0, is_causal=causal
     )
 
 
 def main() -> int:
+    """
+    Run the script entrypoint.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Returns:
+        int: Function result value.
+    """
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA required for reduced optimization benchmark.")
 

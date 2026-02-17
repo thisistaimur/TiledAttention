@@ -60,6 +60,13 @@ class ProfileResult:
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Returns:
+        argparse.Namespace: Function result value.
+    """
     parser = argparse.ArgumentParser(
         description="Profile TiledAttention vs torch SDPA with Nsight Compute in one pass."
     )
@@ -85,6 +92,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def _parse_float(value: str | None) -> float | None:
+    """
+    Parse float.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        value: Scalar value to parse or format.
+
+    Returns:
+        float | None: Function result value.
+    """
     if value is None:
         return None
     cleaned = value.strip().replace(",", "")
@@ -97,6 +114,16 @@ def _parse_float(value: str | None) -> float | None:
 
 
 def _parse_ncu_csv_rows(text: str) -> list[dict[str, str]]:
+    """
+    Parse ncu csv rows.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        text: Raw text content to parse.
+
+    Returns:
+        list[dict[str, str]]: Function result value.
+    """
     lines = [
         line
         for line in text.splitlines()
@@ -115,12 +142,32 @@ def _parse_ncu_csv_rows(text: str) -> list[dict[str, str]]:
 
 
 def _kernel_duration(row: dict[str, str]) -> float:
+    """
+    Internal helper for kernel duration.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        row: Single parsed row record.
+
+    Returns:
+        float: Function result value.
+    """
     return _parse_float(row.get("gpu__time_duration.sum")) or _parse_float(
         row.get("gpu__time_duration.avg")
     ) or 0.0
 
 
 def _time_unit_scale_to_ms(unit_text: str | None) -> float:
+    """
+    Measure unit scale to ms.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        unit_text: Function argument.
+
+    Returns:
+        float: Function result value.
+    """
     unit = (unit_text or "").strip().lower()
     if unit == "ms":
         return 1.0
@@ -134,6 +181,16 @@ def _time_unit_scale_to_ms(unit_text: str | None) -> float:
 
 
 def _extract_time_scale_to_ms(rows: list[dict[str, str]]) -> float:
+    """
+    Internal helper for extract time scale to ms.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        rows: Parsed row records from CSV or benchmark output.
+
+    Returns:
+        float: Function result value.
+    """
     if not rows:
         return 1.0
     header_row = rows[0]
@@ -147,6 +204,16 @@ def _extract_time_scale_to_ms(rows: list[dict[str, str]]) -> float:
 
 
 def _select_primary_kernel_row(rows: list[dict[str, str]]) -> dict[str, str] | None:
+    """
+    Internal helper for select primary kernel row.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        rows: Parsed row records from CSV or benchmark output.
+
+    Returns:
+        dict[str, str] | None: Function result value.
+    """
     kernel_rows = [row for row in rows if row.get("Kernel Name", "").strip() != ""]
     if not kernel_rows:
         return None
@@ -156,6 +223,16 @@ def _select_primary_kernel_row(rows: list[dict[str, str]]) -> dict[str, str] | N
 
 
 def _extract_metric_summary(row: dict[str, str] | None) -> dict[str, float | None]:
+    """
+    Internal helper for extract metric summary.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        row: Single parsed row record.
+
+    Returns:
+        dict[str, float | None]: Function result value.
+    """
     summary: dict[str, float | None] = {key: None for key in METRIC_COLUMNS}
     if row is None:
         return summary
@@ -175,6 +252,18 @@ def _run_subprocess(
     env: dict[str, str] | None = None,
     capture_output: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    """
+    Run subprocess.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        cmd: Subprocess command to execute.
+        env: Environment variables for subprocess execution.
+        capture_output: Function argument.
+
+    Returns:
+        subprocess.CompletedProcess[str]: Function result value.
+    """
     return subprocess.run(
         cmd,
         check=True,
@@ -192,6 +281,20 @@ def _profile_method(
     ncu_path: str,
     output_dir: Path,
 ) -> ProfileResult:
+    """
+    Internal helper for profile method.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        method: Method name to execute or profile.
+        args: Parsed command-line arguments namespace.
+        workload_script: Workload script path executed under profiler.
+        ncu_path: Path to the Nsight Compute CLI executable.
+        output_dir: Directory for generated profiling artifacts.
+
+    Returns:
+        ProfileResult: Function result value.
+    """
     tag = (
         f"ncu_{method}_b{args.batch}_h{args.heads}_s{args.seq_len}_d{args.head_dim}_"
         f"{args.dtype}_acc{args.accum_mode}_{'causal' if args.causal else 'noncausal'}"
@@ -292,18 +395,49 @@ def _profile_method(
 
 
 def _fmt_metric(value: float | None) -> str:
+    """
+    Format metric.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        value: Scalar value to parse or format.
+
+    Returns:
+        str: Function result value.
+    """
     if value is None:
         return "n/a"
     return f"{value:.4g}"
 
 
 def _short_kernel_name(name: str, *, max_len: int = 64) -> str:
+    """
+    Internal helper for short kernel name.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        name: Identifier or metric name.
+        max_len: Function argument.
+
+    Returns:
+        str: Function result value.
+    """
     if len(name) <= max_len:
         return name
     return name[: max_len - 3] + "..."
 
 
 def _diagnose(result: ProfileResult) -> list[str]:
+    """
+    Internal helper for diagnose.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        result: Single profiling result record.
+
+    Returns:
+        list[str]: Function result value.
+    """
     m = result.metrics
     lines: list[str] = []
     tensor = m["tensor_core_insts"]
@@ -332,6 +466,15 @@ def _diagnose(result: ProfileResult) -> list[str]:
 
 
 def _write_summary(path: Path, results: list[ProfileResult], args: argparse.Namespace) -> None:
+    """
+    Write summary.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Args:
+        path: Output path for generated artifact.
+        results: Collected profiling results.
+        args: Parsed command-line arguments namespace.
+    """
     lines = [
         "# Nsight Compute One-Pass Summary",
         "",
@@ -377,6 +520,13 @@ def _write_summary(path: Path, results: list[ProfileResult], args: argparse.Name
 
 
 def main() -> int:
+    """
+    Run the script entrypoint.
+    This helper is part of the benchmark and profiling pipeline.
+
+    Returns:
+        int: Function result value.
+    """
     args = parse_args()
     if args.batch <= 0 or args.heads <= 0 or args.seq_len <= 0 or args.head_dim <= 0:
         raise ValueError("batch/heads/seq-len/head-dim must be positive.")

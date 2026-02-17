@@ -8,11 +8,30 @@ from .._errors import DTypeNotSupportedError, InvalidShapeError
 
 
 def _ensure_tensor(torch_mod: ModuleType, name: str, value: object) -> None:
+    """
+    Internal helper for ensure tensor.
+    It enforces input constraints before kernel execution.
+
+    Args:
+        torch_mod: Imported torch module instance.
+        name: Identifier or metric name.
+        value: Scalar value to parse or format.
+    """
     if not isinstance(value, torch_mod.Tensor):
         raise InvalidShapeError(f"{name} must be a torch.Tensor.")
 
 
 def validate_sdpa_inputs(torch_mod: ModuleType, q, k, v) -> None:
+    """
+    Validate sdpa inputs.
+    It enforces input constraints before kernel execution.
+
+    Args:
+        torch_mod: Imported torch module instance.
+        q: Query tensor in attention layout.
+        k: Key tensor in attention layout.
+        v: Value tensor in attention layout.
+    """
     _ensure_tensor(torch_mod, "q", q)
     _ensure_tensor(torch_mod, "k", k)
     _ensure_tensor(torch_mod, "v", v)
