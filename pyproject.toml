@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tiledattention"
 version = "0.0.1"
-description = "FlashAttention-style SDPA forward implemented in cuTile Python (Blackwell-only)."
+description = "TiledAttention: a CUDA Tile SDPA Kernel for PyTorch."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Taimur Khan", email = "taimur.khan@ufz.de" }]
-keywords = ["cuda", "attention", "sdpa", "flashattention", "cutile", "hpc", "blackwell"]
+keywords = ["cuda", "attention", "sdpa", "cutile", "hpc", "pytroch", "deep learning", "artificial intelligence"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "License :: OSI Approved :: Apache Software License",
