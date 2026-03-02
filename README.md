@@ -2,17 +2,23 @@
 
 Paper artifact and reference implementation for:
 
->**TiledAttention: a TileIR SDPA Kernel for PyTorch on CUDA systems**
+>**TiledAttention: a CUDA Tile SDPA Kernel for PyTorch**
 
->Taimur Khan
+>Author: Taimur Khan (taimur.khan@ufz.de)
 
 >Paper: 
+
+>Results & logs: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18787737.svg)](https://doi.org/10.5281/zenodo.18787737)
+
 
 ![Cover: explicit baselines vs TiledAttention (FP16, TFLOPs/s)](benchmark-gb10/figures/figure6_explicit_baselines_tflops_fp16.png)
 
 
 ## Abstract
-TiledAttention is a scaled dot-product attention (SDPA) forward operator implemented as a cuTile Python kernel for CUDA GPUs and exposed as a PyTorch-callable function. It uses online softmax updates and tiled streaming of K,V to avoid materializing the full attention matrix, while keeping kernel schedules easy to modify. We benchmark on an NVIDIA DGX GB10 node and compare against fused PyTorch SDPA and explicit unfused baselines across sequence length, head dimension, and precision (FP16/BF16). The workload grid targets common foundation-model settings (D=64/128, S=512--8192). We report throughput scaling, profiling-guided bottlenecks, and tiling sensitivity; because the harness relies on standard CUDA/PyTorch/Nsight workflows, the methodology transfers directly to other DGX-class systems.
+*_TiledAttention_* is a scaled dot-product attention (SDPA) forward operator for SDPA research on NVIDIA GPUs. Implemented in cuTile Python (TileIR) and exposed as a PyTorch-callable function, it is easier to modify than low-level CUDA templates while retaining realistic behavior via online softmax and tiled $K,V$ streaming. The approach is both performant and directly editable at the schedule level from Python (tile shapes, staging, shared-memory layout), enabling rapid, reproducible kernel research without template-heavy CUDA/CUTLASS rewrites. We benchmark
+TiledAttention on an NVIDIA DGX GB10 node with a reproducible harness and compare against PyTorch SDPA (auto-dispatch) and explicit unfused baselines across sequence length, head dimension, and precision (FP16/BF16). While production fused baselines remain stronger overall,
+TiledAttention delivers large speedups over standard eager attention paths and is available for direct use within PyTorch workflows, providing a practical balance between performance and customizability.
+
 
 ## Workflow Diagram
 ```mermaid
