@@ -6,7 +6,8 @@ Paper artifact and reference implementation for:
 
 >Author: Taimur Khan (taimur.khan@ufz.de)
 
->Paper: 
+>Paper: [![arXiv](https://img.shields.io/badge/arXiv-1234.56789-b31b1b.svg)](https://doi.org/10.48550/arXiv.2603.01960)
+
 
 >Results & logs: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18787737.svg)](https://doi.org/10.5281/zenodo.18787737)
 
