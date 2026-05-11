@@ -86,6 +86,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--opt-level", type=int, default=None)
     parser.add_argument("--occupancy", type=int, default=None)
     parser.add_argument("--num-ctas", type=int, default=None)
+    parser.add_argument("--disable-forced-flash", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=Path("benchmark-gb10/results"))
     parser.add_argument("--ncu-path", type=Path, default=None)
     return parser.parse_args()
@@ -563,22 +564,30 @@ def main() -> int:
     if not workload_script.exists():
         raise FileNotFoundError(f"Missing workload script: {workload_script}")
 
-    results = [
-        _profile_method(
-            method="tiledattention",
-            args=args,
-            workload_script=workload_script,
-            ncu_path=ncu_path,
-            output_dir=output_dir,
-        ),
-        _profile_method(
-            method="torch_sdpa",
-            args=args,
-            workload_script=workload_script,
-            ncu_path=ncu_path,
-            output_dir=output_dir,
-        ),
-    ]
+    methods = ["tiledattention", "torch_sdpa"]
+    if not args.disable_forced_flash:
+        methods.append("torch_sdpa_flash_forced")
+
+    results: list[ProfileResult] = []
+    for method in methods:
+        try:
+            results.append(
+                _profile_method(
+                    method=method,
+                    args=args,
+                    workload_script=workload_script,
+                    ncu_path=ncu_path,
+                    output_dir=output_dir,
+                )
+            )
+        except subprocess.CalledProcessError as exc:
+            if method == "torch_sdpa_flash_forced":
+                print(
+                    "[ncu] warning: forced FLASH_ATTENTION profiling failed; "
+                    f"continuing without it (exit={exc.returncode})."
+                )
+                continue
+            raise
 
     summary_path = output_dir / (
         f"ncu_profile_summary_b{args.batch}_h{args.heads}_s{args.seq_len}_d{args.head_dim}_"

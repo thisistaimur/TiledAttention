@@ -131,6 +131,15 @@ export TILEDATTN_ACCUM_MODE=fp32
 python benchmark-gb10/run_study.py --warmup 5 --iters 15 --batch 1 --heads 8 --disable-flashattention
 ```
 
+Notes:
+- `torch_sdpa` in outputs means PyTorch SDPA auto-dispatch baseline.
+- By default, the study also probes forced PyTorch SDPA backends:
+  - `torch_sdpa_flash_forced` (`SDPBackend.FLASH_ATTENTION`)
+  - `torch_sdpa_efficient_forced` (`SDPBackend.EFFICIENT_ATTENTION`)
+  - `torch_sdpa_cudnn_forced` (`SDPBackend.CUDNN_ATTENTION`)
+- Use `--disable-forced-sdpa-backends` to skip those forced-backend probes.
+- Unsupported backend/shape combinations are written as `NaN` metrics with `status=unsupported` and a short `status_detail`.
+
 Outputs:
 - `benchmark-gb10/results/benchmark_results.csv`
 - `benchmark-gb10/results/tuning_results.csv`
@@ -141,7 +150,9 @@ Outputs:
 - `benchmark-gb10/figures/figure4_regime_map.png`
 - `benchmark-gb10/figures/figure5_bw_proxy.png`
 - `benchmark-gb10/figures/figure_fa_style_tflops_fp16.png`
+- `benchmark-gb10/figures/figure6_explicit_and_backend_matrix_fp16.png`
 - `benchmark-gb10/figures/figure6_explicit_baselines_tflops_fp16.png`
+- `benchmark-gb10/figures/figure7_sdpa_forced_backends_tflops_fp16.png`
 
 ## Nsight Compute (Submission-Ready Profiling)
 

@@ -12,6 +12,7 @@ from typing import Callable
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from tiledattention import sdpa
 from tiledattention._runtime import get_cupy_module, get_cutile_module, get_torch_module
@@ -22,6 +23,8 @@ TICK_FONTSIZE = 14
 LEGEND_FONTSIZE = 12
 ANNOTATION_FONTSIZE = 10
 FIG_DPI = 300
+
+BenchResult = tuple[float, float, str, str]
 
 
 def p95(values: list[float]) -> float:
@@ -268,6 +271,36 @@ def torch_sdpa_math(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal
         )
 
 
+def torch_sdpa_flash_forced(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: bool) -> torch.Tensor:
+    """
+    Run torch sdpa with forced flash backend.
+    """
+    with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+        return torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, attn_mask=None, dropout_p=0.0, is_causal=causal
+        )
+
+
+def torch_sdpa_efficient_forced(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: bool) -> torch.Tensor:
+    """
+    Run torch sdpa with forced efficient-attention backend.
+    """
+    with sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION):
+        return torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, attn_mask=None, dropout_p=0.0, is_causal=causal
+        )
+
+
+def torch_sdpa_cudnn_forced(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, causal: bool) -> torch.Tensor:
+    """
+    Run torch sdpa with forced cuDNN-attention backend.
+    """
+    with sdpa_kernel(SDPBackend.CUDNN_ATTENTION):
+        return torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, attn_mask=None, dropout_p=0.0, is_causal=causal
+        )
+
+
 def standard_eager_attention(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -302,7 +335,7 @@ def standard_eager_attention(
     return torch.matmul(probs, v)
 
 
-def time_cuda_callable_safe(fn, *, warmup: int, iters: int, method: str) -> tuple[float, float]:
+def time_cuda_callable_safe(fn, *, warmup: int, iters: int, method: str) -> BenchResult:
     """
     Measure cuda callable safe.
     This helper is part of the benchmark and profiling pipeline.
@@ -314,24 +347,52 @@ def time_cuda_callable_safe(fn, *, warmup: int, iters: int, method: str) -> tupl
         method: Method name to execute or profile.
 
     Returns:
-        tuple[float, float]: Function result value.
+        tuple[float, float, str, str]: Function result value.
     """
+    def _short_exc(exc: Exception) -> str:
+        text = " ".join(str(exc).strip().split())
+        if not text:
+            text = exc.__class__.__name__
+        return text[:220]
+
+    def _is_backend_unsupported(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        patterns = (
+            "no viable backend",
+            "no available kernel",
+            "no execution plans support",
+            "not supported",
+            "not implemented",
+            "does not support",
+            "unable to find an engine",
+        )
+        return any(pattern in msg for pattern in patterns)
+
     try:
-        return time_cuda_callable(fn, warmup=warmup, iters=iters)
+        median_ms, p95_ms = time_cuda_callable(fn, warmup=warmup, iters=iters)
+        return median_ms, p95_ms, "ok", ""
     except (TypeError, ValueError) as exc:
-        if method == "flashattention":
-            print(f"[bench] warning: flashattention unsupported for this shape/dtype ({exc}); writing NaN metrics")
-            return math.nan, math.nan
-        raise
+        if method == "flashattention" or (
+            method.startswith("torch_sdpa_") and method.endswith("_forced")
+        ):
+            detail = _short_exc(exc)
+            print(f"[bench] warning: {method} unsupported for this shape/dtype ({detail}); writing NaN metrics")
+            return math.nan, math.nan, "unsupported", detail
+        detail = _short_exc(exc)
+        print(f"[bench] warning: {method} runtime failure ({detail}); writing NaN metrics")
+        return math.nan, math.nan, "runtime_error", detail
     except RuntimeError as exc:
+        detail = _short_exc(exc)
         if "out of memory" in str(exc).lower():
             torch.cuda.empty_cache()
             print(f"[bench] warning: OOM while benchmarking {method}; writing NaN metrics")
-            return math.nan, math.nan
-        if method == "flashattention":
-            print(f"[bench] warning: flashattention runtime failure ({exc}); writing NaN metrics")
-            return math.nan, math.nan
-        raise
+            return math.nan, math.nan, "oom", detail
+        if method == "flashattention" or (method.startswith("torch_sdpa_") and method.endswith("_forced")):
+            if _is_backend_unsupported(exc):
+                print(f"[bench] warning: {method} unsupported ({detail}); writing NaN metrics")
+                return math.nan, math.nan, "unsupported", detail
+        print(f"[bench] warning: {method} runtime failure ({detail}); writing NaN metrics")
+        return math.nan, math.nan, "runtime_error", detail
 
 
 def collect_repro_info() -> dict[str, str]:
@@ -429,6 +490,7 @@ def run_benchmark(
     warmup: int,
     iters: int,
     enable_flashattention: bool,
+    enable_forced_sdpa_backends: bool,
 ) -> list[dict[str, str | int | float | bool]]:
     """
     Run benchmark.
@@ -444,6 +506,7 @@ def run_benchmark(
         warmup: Number of warmup iterations.
         iters: Number of timed iterations.
         enable_flashattention: Whether to include FlashAttention baseline.
+        enable_forced_sdpa_backends: Whether to include forced SDPA backend baselines.
 
     Returns:
         list[dict[str, str | int | float | bool]]: Function result value.
@@ -487,6 +550,29 @@ def run_benchmark(
                             ),
                         ),
                     ]
+                    if enable_forced_sdpa_backends:
+                        method_fns.extend(
+                            [
+                                (
+                                    "torch_sdpa_flash_forced",
+                                    lambda q=q, k=k, v=v, causal=causal: torch_sdpa_flash_forced(
+                                        q, k, v, causal=causal
+                                    ),
+                                ),
+                                (
+                                    "torch_sdpa_efficient_forced",
+                                    lambda q=q, k=k, v=v, causal=causal: torch_sdpa_efficient_forced(
+                                        q, k, v, causal=causal
+                                    ),
+                                ),
+                                (
+                                    "torch_sdpa_cudnn_forced",
+                                    lambda q=q, k=k, v=v, causal=causal: torch_sdpa_cudnn_forced(
+                                        q, k, v, causal=causal
+                                    ),
+                                ),
+                            ]
+                        )
                     if flash_attn_func is not None:
                         method_fns.append(
                             (
@@ -501,7 +587,7 @@ def run_benchmark(
                             )
                         )
 
-                    stats: dict[str, tuple[float, float]] = {}
+                    stats: dict[str, BenchResult] = {}
                     for method, fn in method_fns:
                         stats[method] = time_cuda_callable_safe(
                             fn,
@@ -510,7 +596,7 @@ def run_benchmark(
                             method=method,
                         )
 
-                    for method, (median_ms, p95_ms) in stats.items():
+                    for method, (median_ms, p95_ms, status, status_detail) in stats.items():
                         tput = throughput_tokens_per_s(b=b, h=h, s=s, median_ms=median_ms)
                         tflops = tflops_per_s(flops=flops, median_ms=median_ms)
                         bw = approximate_bw_gbps(
@@ -537,6 +623,8 @@ def run_benchmark(
                                 "throughput_tokens_per_s": tput,
                                 "tflops_per_s": tflops,
                                 "approx_bw_gbps": bw,
+                                "status": status,
+                                "status_detail": status_detail,
                             }
                         )
 
@@ -549,6 +637,12 @@ def run_benchmark(
                     )
                     if "flashattention" in stats:
                         msg += f" flashattn={stats['flashattention'][0]:.3f}ms"
+                    if "torch_sdpa_flash_forced" in stats:
+                        msg += f" flash_forced={stats['torch_sdpa_flash_forced'][0]:.3f}ms"
+                    if "torch_sdpa_efficient_forced" in stats:
+                        msg += f" efficient_forced={stats['torch_sdpa_efficient_forced'][0]:.3f}ms"
+                    if "torch_sdpa_cudnn_forced" in stats:
+                        msg += f" cudnn_forced={stats['torch_sdpa_cudnn_forced'][0]:.3f}ms"
                     print(msg)
 
     return records
@@ -629,30 +723,79 @@ def build_figures(
     tiled_bf16 = filter_rows(rows, method="tiledattention", dtype="bfloat16", causal=False, d=fig3_dtype)
     base_bf16 = filter_rows(rows, method=baseline_name, dtype="bfloat16", causal=False, d=fig3_dtype)
 
+    def _throughput_with_p95_error(by_s: dict[int, dict[str, str | int | float | bool]]) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Build median throughput curve and one-sided p95-derived error bars.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: (y values, yerr for matplotlib.errorbar)
+        """
+        med = np.array([float(by_s[s]["throughput_tokens_per_s"]) for s in s_values], dtype=np.float64)
+        p95_tput = np.array(
+            [
+                (float(by_s[s]["B"]) * float(by_s[s]["H"]) * float(by_s[s]["S"])) / (float(by_s[s]["p95_ms"]) / 1000.0)
+                for s in s_values
+            ],
+            dtype=np.float64,
+        )
+        lower = np.clip(med - p95_tput, a_min=0.0, a_max=None)
+        upper = np.zeros_like(lower)
+        return med, np.vstack([lower, upper])
+
+    tiled_fp16_y, tiled_fp16_err = _throughput_with_p95_error(tiled_fp16)
+    base_fp16_y, base_fp16_err = _throughput_with_p95_error(base_fp16)
+    tiled_bf16_y, tiled_bf16_err = _throughput_with_p95_error(tiled_bf16)
+    base_bf16_y, base_bf16_err = _throughput_with_p95_error(base_bf16)
+
     fig, ax = plt.subplots(figsize=(8.0, 5.0))
-    ax.plot(
-        s_values,
-        [float(tiled_fp16[s]["throughput_tokens_per_s"]) for s in s_values],
+
+    def _plot_with_offset_whiskers(
+        *,
+        y: np.ndarray,
+        yerr: np.ndarray,
+        marker: str,
+        label: str,
+        x_factor: float,
+    ) -> None:
+        """
+        Plot line + markers and draw one-sided p95 whiskers with slight x-offset.
+        The offset keeps overlapping whiskers readable while preserving one-panel comparison.
+        """
+        x = np.array(s_values, dtype=np.float64)
+        line, = ax.plot(x, y, marker=marker, label=label)
+        color = line.get_color()
+        lower = y - yerr[0]
+        xw = x * x_factor
+        ax.vlines(xw, lower, y, colors=color, linewidth=1.6, linestyles="--", alpha=0.85)
+        ax.scatter(xw, lower, marker="_", s=70, color=color, alpha=0.85, zorder=3)
+
+    _plot_with_offset_whiskers(
+        y=tiled_fp16_y,
+        yerr=tiled_fp16_err,
         marker="o",
         label="TiledAttention FP16",
+        x_factor=0.985,
     )
-    ax.plot(
-        s_values,
-        [float(base_fp16[s]["throughput_tokens_per_s"]) for s in s_values],
+    _plot_with_offset_whiskers(
+        y=base_fp16_y,
+        yerr=base_fp16_err,
         marker="o",
         label="Baseline FP16",
+        x_factor=0.995,
     )
-    ax.plot(
-        s_values,
-        [float(tiled_bf16[s]["throughput_tokens_per_s"]) for s in s_values],
+    _plot_with_offset_whiskers(
+        y=tiled_bf16_y,
+        yerr=tiled_bf16_err,
         marker="s",
         label="TiledAttention BF16",
+        x_factor=1.005,
     )
-    ax.plot(
-        s_values,
-        [float(base_bf16[s]["throughput_tokens_per_s"]) for s in s_values],
+    _plot_with_offset_whiskers(
+        y=base_bf16_y,
+        yerr=base_bf16_err,
         marker="s",
         label="Baseline BF16",
+        x_factor=1.015,
     )
     ax.set_xscale("log", base=2)
     ax.set_xticks(s_values, [str(s) for s in s_values])
@@ -882,6 +1025,208 @@ def build_explicit_baseline_figure(
     plt.close(fig)
 
 
+def build_sdpa_forced_backends_figure(
+    *,
+    rows: list[dict[str, str | int | float | bool]],
+    fig_dir: Path,
+) -> None:
+    """
+    Build forced SDPA backend comparison figure.
+    """
+    s_values = [512, 1024, 2048, 4096, 8192]
+    d = 128
+    dtype = "float16"
+    methods = [
+        ("tiledattention", "TiledAttention", "#1f77b4"),
+        ("torch_sdpa", "PyTorch SDPA (auto)", "#f28e2b"),
+        ("torch_sdpa_flash_forced", "FlashAttention", "#b07aa1"),
+        ("torch_sdpa_efficient_forced", "EfficientAttention", "#59a14f"),
+        ("torch_sdpa_cudnn_forced", "CUDNN Attention", "#e15759"),
+    ]
+
+    present_methods = [m for m in methods if any(row["method"] == m[0] for row in rows)]
+    if len(present_methods) <= 1:
+        return
+
+    causal_values = sorted({bool(row["causal"]) for row in rows if row["dtype"] == dtype})
+    if not causal_values:
+        return
+
+    fig, axes = plt.subplots(
+        1,
+        len(causal_values),
+        figsize=(8 * len(causal_values), 4.8),
+        sharey=True,
+        squeeze=False,
+    )
+    x = np.arange(len(s_values), dtype=np.float64)
+    width = 0.18
+    offsets = np.linspace(
+        -(len(present_methods) - 1) * width / 2.0,
+        (len(present_methods) - 1) * width / 2.0,
+        len(present_methods),
+    )
+
+    for j, causal in enumerate(causal_values):
+        ax = axes[0, j]
+        for offset, (method, label, color) in zip(offsets, present_methods, strict=False):
+            vals: list[float] = []
+            for s in s_values:
+                row = next(
+                    (
+                        row
+                        for row in rows
+                        if row["method"] == method
+                        and row["dtype"] == dtype
+                        and row["causal"] is causal
+                        and row["S"] == s
+                        and row["D"] == d
+                    ),
+                    None,
+                )
+                vals.append(float(row["tflops_per_s"]) if row is not None else math.nan)
+            ax.bar(x + offset, vals, width=width, label=label, color=color)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(s) for s in s_values])
+        mode = "causal" if causal else "non-causal"
+        ax.set_xlabel(f"Sequence length, S ({mode})")
+        ax.grid(axis="y", alpha=0.25)
+        if j == 0:
+            ax.set_ylabel("TFLOPs/s")
+            ax.legend(fontsize=LEGEND_FONTSIZE)
+        _style_axis(ax)
+
+    _save_figure(fig, fig_dir / "figure7_sdpa_forced_backends_tflops_fp16.png")
+    plt.close(fig)
+
+
+def build_explicit_and_backend_matrix_composite_figure(
+    *,
+    rows: list[dict[str, str | int | float | bool]],
+    fig_dir: Path,
+) -> None:
+    """
+    Build composite figure: explicit baselines + SDPA backend matrix.
+    """
+    s_values = [512, 1024, 2048, 4096, 8192]
+    d = 128
+    dtype = "float16"
+    explicit_methods = [
+        ("standard_eager", "Standard attention", "#4e79a7"),
+        ("torch_sdpa_math", "PyTorch SDPA (math)", "#59a14f"),
+        ("torch_sdpa", "PyTorch SDPA (auto)", "#f28e2b"),
+        ("tiledattention", "TiledAttention", "#1f77b4"),
+    ]
+    backend_methods = [
+        ("tiledattention", "TiledAttention", "#1f77b4"),
+        ("torch_sdpa", "PyTorch SDPA (auto)", "#f28e2b"),
+        ("torch_sdpa_flash_forced", "FlashAttention", "#b07aa1"),
+        ("torch_sdpa_efficient_forced", "EfficientAttention", "#59a14f"),
+        ("torch_sdpa_cudnn_forced", "CUDNN Attention", "#e15759"),
+    ]
+
+    if any(row["method"] == "flashattention" for row in rows):
+        explicit_methods.insert(3, ("flashattention", "FlashAttention (pkg)", "#76b7b2"))
+
+    present_backend_methods = [m for m in backend_methods if any(row["method"] == m[0] for row in rows)]
+    if not present_backend_methods:
+        return
+
+    causal_values = sorted({bool(row["causal"]) for row in rows if row["dtype"] == dtype})
+    if not causal_values:
+        return
+
+    fig, axes = plt.subplots(
+        2,
+        len(causal_values),
+        figsize=(8 * len(causal_values), 9.2),
+        sharex=False,
+        sharey="row",
+        squeeze=False,
+    )
+    x = np.arange(len(s_values), dtype=np.float64)
+
+    # Top row: explicit baselines
+    width_top = 0.16
+    offsets_top = np.linspace(
+        -(len(explicit_methods) - 1) * width_top / 2.0,
+        (len(explicit_methods) - 1) * width_top / 2.0,
+        len(explicit_methods),
+    )
+    for j, causal in enumerate(causal_values):
+        ax = axes[0, j]
+        for offset, (method, label, color) in zip(offsets_top, explicit_methods, strict=False):
+            vals: list[float] = []
+            for s in s_values:
+                row = next(
+                    (
+                        row
+                        for row in rows
+                        if row["method"] == method
+                        and row["dtype"] == dtype
+                        and row["causal"] is causal
+                        and row["S"] == s
+                        and row["D"] == d
+                    ),
+                    None,
+                )
+                vals.append(float(row["tflops_per_s"]) if row is not None else math.nan)
+            ax.bar(x + offset, vals, width=width_top, label=label, color=color)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(s) for s in s_values])
+        mode = "causal" if causal else "non-causal"
+        ax.set_xlabel(f"Sequence length, S ({mode})")
+        ax.set_title(f"(a) Explicit baselines ({mode})", fontsize=AXIS_LABEL_FONTSIZE)
+        ax.grid(axis="y", alpha=0.25)
+        if j == 0:
+            ax.set_ylabel("TFLOPs/s")
+            ax.legend(fontsize=LEGEND_FONTSIZE - 1)
+        _style_axis(ax)
+
+    # Bottom row: backend matrix
+    width_bottom = 0.14
+    offsets_bottom = np.linspace(
+        -(len(present_backend_methods) - 1) * width_bottom / 2.0,
+        (len(present_backend_methods) - 1) * width_bottom / 2.0,
+        len(present_backend_methods),
+    )
+    for j, causal in enumerate(causal_values):
+        ax = axes[1, j]
+        for offset, (method, label, color) in zip(offsets_bottom, present_backend_methods, strict=False):
+            vals: list[float] = []
+            for s in s_values:
+                row = next(
+                    (
+                        row
+                        for row in rows
+                        if row["method"] == method
+                        and row["dtype"] == dtype
+                        and row["causal"] is causal
+                        and row["S"] == s
+                        and row["D"] == d
+                    ),
+                    None,
+                )
+                vals.append(float(row["tflops_per_s"]) if row is not None else math.nan)
+            ax.bar(x + offset, vals, width=width_bottom, label=label, color=color)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(s) for s in s_values])
+        mode = "causal" if causal else "non-causal"
+        ax.set_xlabel(f"Sequence length, S ({mode})")
+        ax.set_title(f"(b) SDPA backend matrix ({mode})", fontsize=AXIS_LABEL_FONTSIZE)
+        ax.grid(axis="y", alpha=0.25)
+        if j == 0:
+            ax.set_ylabel("TFLOPs/s")
+            ax.legend(fontsize=LEGEND_FONTSIZE - 1)
+        _style_axis(ax)
+
+    _save_figure(fig, fig_dir / "figure6_explicit_and_backend_matrix_fp16.png")
+    plt.close(fig)
+
+
 def run_tune(
     *,
     b: int,
@@ -1035,12 +1380,16 @@ def write_summary(path: Path, bench_csv: Path, tune_csv: Path, baseline_name: st
         baseline_name: Baseline method identifier.
     """
     has_flashattention = False
+    has_forced_sdpa_backends = False
     try:
         with bench_csv.open(newline="") as f:
             reader = csv.DictReader(f)
-            has_flashattention = any(row.get("method") == "flashattention" for row in reader)
+            methods = {row.get("method", "") for row in reader}
+            has_flashattention = "flashattention" in methods
+            has_forced_sdpa_backends = any(method.endswith("_forced") for method in methods)
     except Exception:
         has_flashattention = False
+        has_forced_sdpa_backends = False
 
     lines = [
         "# Study Summary",
@@ -1050,6 +1399,14 @@ def write_summary(path: Path, bench_csv: Path, tune_csv: Path, baseline_name: st
         "## Baseline",
         "",
         f"- Baseline used: `{baseline_name}`",
+        "- `torch_sdpa` denotes PyTorch SDPA auto-dispatch.",
+        (
+            "- Forced backend probes enabled: `torch_sdpa_flash_forced`, `torch_sdpa_efficient_forced`, "
+            "`torch_sdpa_cudnn_forced`."
+            if has_forced_sdpa_backends
+            else "- Forced backend probes disabled for this run."
+        ),
+        "- `NaN` metrics indicate unsupported or failed backend-shape combinations; see `status` and `status_detail` columns.",
         (
             "- FlashAttention package availability: installed and benchmarked."
             if has_flashattention
@@ -1067,7 +1424,9 @@ def write_summary(path: Path, bench_csv: Path, tune_csv: Path, baseline_name: st
         "- Figure 4: `benchmark-gb10/figures/figure4_regime_map.png`",
         "- Figure 5: `benchmark-gb10/figures/figure5_bw_proxy.png`",
         "- FlashAttention-style TFLOPs figure: `benchmark-gb10/figures/figure_fa_style_tflops_fp16.png`",
+        "- Composite explicit+backend TFLOPs figure: `benchmark-gb10/figures/figure6_explicit_and_backend_matrix_fp16.png`",
         "- Explicit baselines TFLOPs figure: `benchmark-gb10/figures/figure6_explicit_baselines_tflops_fp16.png`",
+        "- Forced SDPA backend TFLOPs figure: `benchmark-gb10/figures/figure7_sdpa_forced_backends_tflops_fp16.png`",
     ]
     path.write_text("\n".join(lines) + "\n")
 
@@ -1088,6 +1447,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--include-causal", action="store_true", default=True)
     parser.add_argument("--no-causal", action="store_true")
     parser.add_argument("--disable-flashattention", action="store_true")
+    parser.add_argument("--disable-forced-sdpa-backends", action="store_true")
     return parser.parse_args()
 
 
@@ -1136,6 +1496,7 @@ def main() -> int:
         warmup=args.warmup,
         iters=args.iters,
         enable_flashattention=not args.disable_flashattention,
+        enable_forced_sdpa_backends=not args.disable_forced_sdpa_backends,
     )
 
     bench_csv = results_dir / "benchmark_results.csv"
@@ -1143,6 +1504,8 @@ def main() -> int:
     build_figures(rows=bench_rows, fig_dir=figs_dir)
     build_flashattention_style_figure(rows=bench_rows, fig_dir=figs_dir)
     build_explicit_baseline_figure(rows=bench_rows, fig_dir=figs_dir)
+    build_sdpa_forced_backends_figure(rows=bench_rows, fig_dir=figs_dir)
+    build_explicit_and_backend_matrix_composite_figure(rows=bench_rows, fig_dir=figs_dir)
 
     tune_rows = run_tune(b=args.batch, h=args.heads, warmup=args.warmup, iters=args.iters)
     tune_csv = results_dir / "tuning_results.csv"

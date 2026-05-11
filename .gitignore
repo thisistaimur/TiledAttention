@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+notebook/results/*.ncu-rep
+notebook/results/*_raw.csv
+paper/
+benchmark-gb10/figures_old
+benchmark-gb10/results_old
+review_cover.md
+PLAN.md
+CODEX_TASKs.md

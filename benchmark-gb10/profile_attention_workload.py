@@ -60,6 +60,18 @@ def run_attention(
             dropout_p=0.0,
             is_causal=causal,
         )
+    if method == "torch_sdpa_flash_forced":
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+            return torch.nn.functional.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=None,
+                dropout_p=0.0,
+                is_causal=causal,
+            )
     raise ValueError(f"Unsupported method={method!r}.")
 
 
@@ -78,7 +90,7 @@ def parse_args() -> argparse.Namespace:
         "--method",
         type=str,
         required=True,
-        choices=["tiledattention", "torch_sdpa"],
+        choices=["tiledattention", "torch_sdpa", "torch_sdpa_flash_forced"],
     )
     parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--heads", type=int, default=8)
