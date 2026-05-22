@@ -1,0 +1,14 @@
+.venv
+.pytest_cache
+.ruff_cache
+tests/__pycache__
+paper
+benchmark-gb10/__pycache__
+benchmark-gb10/figures_old
+benchmark-gb10/results_old
+src/tiledattention/__pycache__
+src/tiledattention/kernels/__pycache__
+src/tiledattention/utils/__pycache__
+CODEX_TASKs.md
+PLAN.md
+review_cover.md
