@@ -17,7 +17,6 @@ Paper artifact and reference implementation for:
 ![Cover: explicit baselines vs TiledAttention (FP16, TFLOPs/s)](benchmark-gb10/figures/figure7_sdpa_forced_backends_tflops_fp16.png)
 
 
-
 ## Abstract
 *_TiledAttention_* is a scaled dot-product attention (SDPA) forward operator for SDPA research on NVIDIA GPUs. Implemented in cuTile Python (TileIR) and exposed as a PyTorch-callable function, it is easier to modify than low-level CUDA templates while retaining realistic behavior via online softmax and tiled $K,V$ streaming. The approach is both performant and directly editable at the schedule level from Python (tile shapes, staging, shared-memory layout), enabling rapid, reproducible kernel research without template-heavy CUDA/CUTLASS rewrites. We benchmark
 TiledAttention on an NVIDIA DGX GB10 node with a reproducible harness and compare against PyTorch SDPA (auto-dispatch) and explicit unfused baselines across sequence length, head dimension, and precision (FP16/BF16). While production fused baselines remain stronger overall,
@@ -82,6 +81,24 @@ pip install -r requirements.txt
 
 # Install project in editable mode
 pip install -e . --no-build-isolation
+```
+
+## HF Kernel Sync Workflow
+For Hugging Face kernel builds, `src/tiledattention` is the single source of truth.
+Do not edit `torch-ext/tiledattention` manually; it is a build mirror used by `kernel-builder`.
+
+Before any `kernel-builder build` or `build-and-upload`, run:
+
+```bash
+python scripts/sync_torch_ext_from_src.py
+```
+
+Recommended sequence:
+
+```bash
+python scripts/sync_torch_ext_from_src.py
+kernel-builder build --variant torch211-cxx11-cu130-aarch64-linux -L .
+kernel-builder testshell --variant torch211-cxx11-cu130-aarch64-linux .
 ```
 
 ## Dependency Validation (Fail Fast)
