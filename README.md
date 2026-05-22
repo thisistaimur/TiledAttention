@@ -81,6 +81,24 @@ pip install -r requirements.txt
 pip install -e . --no-build-isolation
 ```
 
+## HF Kernel Sync Workflow
+For Hugging Face kernel builds, `src/tiledattention` is the single source of truth.
+Do not edit `torch-ext/tiledattention` manually; it is a build mirror used by `kernel-builder`.
+
+Before any `kernel-builder build` or `build-and-upload`, run:
+
+```bash
+python scripts/sync_torch_ext_from_src.py
+```
+
+Recommended sequence:
+
+```bash
+python scripts/sync_torch_ext_from_src.py
+kernel-builder build --variant torch211-cxx11-cu130-aarch64-linux -L .
+kernel-builder testshell --variant torch211-cxx11-cu130-aarch64-linux .
+```
+
 ## Dependency Validation (Fail Fast)
 Run this before benchmarking:
 
